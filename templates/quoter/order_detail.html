@@ -24,6 +24,7 @@
     </form>
     {% endif %}
     <a class="btn btn-outline-secondary" href="{% url 'quote_detail' order.quotation.pk %}">查看报价单</a>
+    <a class="btn btn-outline-secondary" href="{% url 'order_export' order.pk %}">ERP CSV</a>
     <a class="btn btn-outline-secondary" href="{% url 'order_list' %}">返回</a>
   </div>
 </div>

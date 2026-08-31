@@ -114,6 +114,10 @@ class CableSeries(models.Model):
     armor_material = models.ForeignKey(
         Material, on_delete=models.PROTECT, related_name='series_armor',
         verbose_name='铠装/屏蔽材料', null=True, blank=True)
+    armor_steel_table = models.JSONField(
+        '铠装钢带厚度表', default=dict, blank=True,
+        help_text='按成缆外径段配单层钢带厚度(mm)，如 {"15": 0.2, "25": 0.3, "40": 0.5}；'
+                  '留空用内置四档')
     # 理论重量计算参数（JSON，可在后台按厂标微调）：
     # 绝缘厚度表 {"截面": 厚度mm}，生成芯数组合 ["1","2","3","3+1","4","5"]，
     # 生成截面列表，导体直径系数，绞入系数

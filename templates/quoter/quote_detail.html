@@ -29,6 +29,7 @@
     </form>
     {% endif %}
     <a class="btn btn-outline-secondary" href="{% url 'quote_export' quote.pk %}">导出 Excel</a>
+    <a class="btn btn-outline-secondary" href="{% url 'quote_export' quote.pk %}?erp=1">ERP CSV</a>
     <button class="btn btn-outline-primary" onclick="window.print()">打印 / 存 PDF</button>
     {% if quote.status == 'approved' %}
       {% if quote.order %}

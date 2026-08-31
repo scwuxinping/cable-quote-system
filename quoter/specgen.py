@@ -40,11 +40,25 @@ def lay_factor(n):
     return Decimal(str(1 + 1 / math.sin(math.pi / n)))
 
 
-def armor_thickness(d):
+def armor_thickness(d, series=None):
     """按成缆外径查钢带铠装等效厚度（两层含搭盖，近似 GB/T）。
 
     等效厚度 ≈ 单层标称厚度 × 2 × 1.05 搭盖；规格库逐条可校准。
+    系列可配 armor_steel_table（外径上限→单层厚度）覆盖内置分档。
     """
+    if series is not None and getattr(series, 'armor_steel_table', None):
+        table = {float(k): float(v)
+                 for k, v in series.armor_steel_table.items()}
+        single = None
+        for max_d in sorted(table):
+            if float(d) < max_d:
+                single = table[max_d]
+                break
+        if single is None and table:
+            single = table[max(sorted(table))]
+        if single:
+            return (Decimal(str(single)) * Decimal('2')
+                    * ARMOR_OVERLAP).quantize(Decimal('0.01'))
     d = float(d)
     if d < 15:
         return Decimal('0.4')    # 单层 0.2mm ×2
@@ -121,7 +135,7 @@ def compute_weights(series, layout):
     else:
         bundle = main_d_ins
     if series.has_armor:
-        t_a = armor_thickness(bundle)
+        t_a = armor_thickness(bundle, series=series)
         a_a = Decimal(str(math.pi)) * ((bundle / Decimal('2') + t_a) ** 2
                                        - (bundle / Decimal('2')) ** 2)
         armor_density = _material_density(

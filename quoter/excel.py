@@ -164,3 +164,49 @@ def export_quotation(quotation):
     resp['Content-Disposition'] = 'attachment; filename=%s.xlsx' % quotation.number
     resp.write(export_quotation_bytes(quotation))
     return resp
+
+
+def export_erp_csv(rows, header, filename):
+    """通用 ERP 导入导出：扁平表 CSV（UTF-8 带 BOM，Excel 直接打开不乱码）。"""
+    import csv
+    import io as _io
+    buf = _io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    for r in rows:
+        writer.writerow(r)
+    resp = HttpResponse(buf.getvalue().encode('utf-8-sig'),
+                        content_type='text/csv; charset=utf-8')
+    resp['Content-Disposition'] = 'attachment; filename=%s' % filename
+    return resp
+
+
+ERP_HEADER = ['单据日期', '单据编号', '客户名称', '型号规格', '电压', '计量单位',
+              '数量', '单价(元/m)', '金额(元)', '整单折扣', '运费(元)', '备注']
+
+
+def quote_erp_rows(quotation):
+    rows = []
+    for item in quotation.items.all():
+        rows.append([
+            quotation.created_at.strftime('%Y-%m-%d'), quotation.number,
+            quotation.customer.name, item.spec_text, item.spec.voltage, '米',
+            str(item.length_m), str(item.final_price_per_m), str(item.amount),
+            str(quotation.discount), str(quotation.freight), quotation.note,
+        ])
+    return rows
+
+
+def order_erp_rows(order):
+    rows = []
+    quote = order.quotation
+    for item in quote.items.all():
+        rows.append([
+            order.created_at.strftime('%Y-%m-%d'), order.number,
+            order.customer.name, item.spec_text, item.spec.voltage, '米',
+            str(item.length_m), str(item.final_price_per_m), str(item.amount),
+            str(quote.discount), str(quote.freight),
+            '订单状态:%s%s' % (order.status_label,
+                               '；' + order.note if order.note else ''),
+        ])
+    return rows

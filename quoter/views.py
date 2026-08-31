@@ -387,12 +387,28 @@ def quote_submit(request, pk):
             request, '实际毛利率 %.2f%% 低于最低 %.2f%%，已提交经理审批%s'
             % (margin, quote.min_margin(),
                '（金额达大单阈值，经理审批后还需老板终审）' if big_amount else ''))
+        from .notify import send_wecom
+        send_wecom('⏳ 报价单待审批（低毛利）', [
+            '> 单号：**%s**（客户 %s，业务员 %s）'
+            % (quote.number, quote.customer.name, quote.created_by.username),
+            '> 实际毛利率 **%.2f%%** 低于最低 %.2f%%，金额 %s 元'
+            % (margin, quote.min_margin(), quote.total_amount()),
+            '> [去审批](/quotes/%d/)' % quote.pk,
+        ])
     elif big_amount:
         quote.status = Quotation.STATUS_PENDING
         quote.save(update_fields=['status'])
         messages.warning(
             request, '金额 %s 元达到大单阈值（%s 元），需经理审批 + 老板终审'
             % (quote.total_amount(), params.boss_threshold_amount))
+        from .notify import send_wecom
+        send_wecom('⏳ 大单报价待审批', [
+            '> 单号：**%s**（客户 %s，业务员 %s）'
+            % (quote.number, quote.customer.name, quote.created_by.username),
+            '> 金额 **%s 元** 达到大单阈值（%s 元），需经理审批 + 老板终审'
+            % (quote.total_amount(), params.boss_threshold_amount),
+            '> [去审批](/quotes/%d/)' % quote.pk,
+        ])
     else:
         quote.status = Quotation.STATUS_APPROVED
         quote.save(update_fields=['status'])
@@ -458,7 +474,17 @@ def quote_delete(request, pk):
 @login_required
 def quote_export(request, pk):
     quote = get_object_or_404(Quotation, pk=pk)
+    if request.GET.get('erp') == '1':
+        return excel.export_erp_csv(excel.quote_erp_rows(quote), excel.ERP_HEADER,
+                                    '%s_erp.csv' % quote.number)
     return excel.export_quotation(quote)
+
+
+@login_required
+def order_export(request, pk):
+    order = get_object_or_404(SalesOrder, pk=pk)
+    return excel.export_erp_csv(excel.order_erp_rows(order), excel.ERP_HEADER,
+                                '%s_erp.csv' % order.number)
 
 
 @login_required

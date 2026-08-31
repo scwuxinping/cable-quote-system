@@ -115,6 +115,14 @@ def _submit_inquiry(request, ctx):
     request.session['portal_rows'] = [
         {'text': it.spec_text, 'length': str(it.length_m),
          'price': str(it.quoted_price_per_m)} for it in lead.items.all()]
+    from .notify import send_wecom
+    send_wecom('📥 新询价线索', [
+        '> 客户：**%s**（%s %s）' % (lead.company, lead.contact_name, lead.phone),
+        '> 明细：%s' % '；'.join(
+            '%s × %sm' % (it.spec_text, it.length_m) for it in lead.items.all()),
+        '> 时间：%s' % lead.created_at.strftime('%m-%d %H:%M'),
+        '> [查看线索](/leads/)',
+    ])
     return redirect('portal_success')
 
 
@@ -179,4 +187,10 @@ def portal_sign(request, token):
         quote.signed_at = timezone.now()
         quote.signed_by = signed_by[:50]
         quote.save(update_fields=['signed_at', 'signed_by'])
+        from .notify import send_wecom
+        send_wecom('✅ 报价单已签收', [
+            '> 单号：**%s**（客户 %s）' % (quote.number, quote.customer.name),
+            '> 签收人：%s · %s' % (quote.signed_by,
+                                   quote.signed_at.strftime('%m-%d %H:%M')),
+        ])
     return redirect('portal_quote', token=token)

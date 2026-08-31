@@ -91,6 +91,9 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', '1') == '1'
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER or 'cable-quote@localhost'
 
+# 企业微信群机器人通知（可选）：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...
+WECOM_WEBHOOK = os.environ.get('WECOM_WEBHOOK', '')
+
 AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = 'zh-hans'

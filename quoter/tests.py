@@ -626,3 +626,84 @@ class PortalTests(TestCase):
         # 复用已有客户（门户客户 已存在）
         self.assertEqual(q.customer.name, '门户客户')
 
+class Phase4Tests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+        from datetime import timedelta
+        cu = _mat('CU', '8.89', '75')
+        xlpe = _mat('XLPE', '0.92', '12.5', loss='3')
+        pvc = _mat('PVC', '1.40', '9.2', loss='3')
+        series, _ = CableSeries.objects.update_or_create(
+            code='YJV', defaults={'name': 't', 'insulation': xlpe, 'has_sheath': True,
+                                  'sheath_material': pvc,
+                                  'insulation_thickness': {'16': '0.7'},
+                                  'core_options': ['4'], 'sections': [16]})
+        spec, _ = CableSpec.objects.update_or_create(
+            series=series, layout='4x16',
+            defaults={'conductor_material': cu, 'cores_total': 4,
+                      'section_total': Decimal('64'), 'conductor_weight': Decimal('580'),
+                      'insulation_weight': Decimal('44'), 'sheath_weight': Decimal('118')})
+        self.series = series
+        self.spec = spec
+        self.user = User.objects.create_user('p4u')
+        self.cust = Customer.objects.create(name='四期客户')
+        self.quote = Quotation.objects.create(
+            number='P4-001', customer=self.cust, created_by=self.user,
+            valid_until=timezone.localdate() + timedelta(days=3),
+            status=Quotation.STATUS_APPROVED, freight=Decimal('100'),
+            note='ERP测试')
+        QuotationItem.objects.create(
+            quotation=self.quote, spec=spec, spec_text='YJV 4×16',
+            length_m=Decimal('100'), list_price_per_m=Decimal('50'),
+            final_price_per_m=Decimal('50'), amount=Decimal('5000'),
+            cost_detail={'cost_km': '40000', 'tax_mult': '1.13'})
+
+    def test_notify_without_webhook(self):
+        from quoter.notify import send_wecom
+        self.assertFalse(send_wecom('t', ['x']))   # 未配置 → 静默跳过
+
+    def test_notify_rejects_non_whitelist(self):
+        from django.test import override_settings
+        from quoter.notify import send_wecom, _webhook_safe
+        self.assertFalse(_webhook_safe('http://qyapi.weixin.qq.com/x'))     # 非 https
+        self.assertFalse(_webhook_safe('https://evil.example.com/x'))       # 非白名单域
+        with override_settings(WECOM_WEBHOOK='https://evil.example.com/x'):
+            self.assertFalse(send_wecom('t', ['x']))
+
+    def test_quote_erp_rows_and_csv(self):
+        from quoter import excel
+        rows = excel.quote_erp_rows(self.quote)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][1], 'P4-001')
+        self.assertEqual(rows[0][3], 'YJV 4×16')
+        self.assertEqual(rows[0][5], '米')
+        from django.test import Client
+        c = Client()
+        c.force_login(self.user)
+        resp = c.get('/quotes/%d/export/?erp=1' % self.quote.pk)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.content
+        import codecs
+        self.assertTrue(data.startswith(codecs.BOM_UTF8))   # UTF-8 BOM
+        self.assertIn('YJV 4×16'.encode('utf-8'), data)
+
+    def test_order_erp_rows(self):
+        from quoter import excel
+        order = SalesOrder.objects.create(
+            quotation=self.quote, number='SO-P4', customer=self.cust,
+            created_by=self.user, amount=self.quote.total_amount())
+        rows = excel.order_erp_rows(order)
+        self.assertEqual(rows[0][1], 'SO-P4')
+        self.assertIn('订单状态:生产中', rows[0][11])
+
+    def test_armor_table_override(self):
+        from quoter.specgen import armor_thickness
+        # 内置分档
+        self.assertEqual(armor_thickness(20), Decimal('0.5'))
+        # 系列表覆盖：单层 0.3 → 等效 0.3×2×1.05=0.63
+        self.series.armor_steel_table = {'25': 0.3}
+        self.assertEqual(armor_thickness(20, series=self.series), Decimal('0.63'))
+        # 超出表上限 → 用最大档
+        self.assertEqual(armor_thickness(80, series=self.series), Decimal('0.63'))
+
