@@ -1,0 +1,99 @@
+{% extends 'quoter/portal/base_portal.html' %}
+{% block title %}在线询价 - {{ params.company_name }}{% endblock %}
+{% block content %}
+<h4 class="mb-3">在线询价</h4>
+
+{% if errors %}
+<div class="alert alert-danger">
+  <b>请修正以下问题后重新提交：</b>
+  <ul class="mb-0">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<form method="post">
+{% csrf_token %}
+<input type="hidden" name="op" value="inquiry">
+<div class="card mb-3"><div class="card-body">
+  <h6>询价明细（型号规格 + 长度）</h6>
+  <table class="table align-middle" id="rows">
+    <thead><tr><th style="width:45%">型号规格</th><th style="width:20%">长度(m)</th>
+      <th>目录价参考</th><th style="width:50px"></th></tr></thead>
+    <tbody>
+      <tr class="p-row">
+        <td><input name="row_text" class="form-control" placeholder="如：YJV 3×120+1×70"></td>
+        <td><input name="row_len" class="form-control" placeholder="如 500" inputmode="decimal"></td>
+        <td class="price-hint text-muted small"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger del-row">删</button></td>
+      </tr>
+    </tbody>
+  </table>
+  <button type="button" class="btn btn-sm btn-outline-primary" id="add-row">＋ 添加一行</button>
+  <div class="form-text mt-1">
+    支持型号：{% for s in series_list %}<b>{{ s.code }}</b> {% endfor %}（示例：YJV22 4×16、wdz-yjy 4×16）
+  </div>
+</div></div>
+
+<div class="card mb-3"><div class="card-body">
+  <h6>联系方式</h6>
+  <div class="row g-2">
+    <div class="col-md-4">
+      <input name="company" class="form-control" placeholder="公司名称 *" required
+             value="{{ form.company|default:'' }}">
+    </div>
+    <div class="col-md-3">
+      <input name="contact" class="form-control" placeholder="联系人 *" required
+             value="{{ form.contact|default:'' }}">
+    </div>
+    <div class="col-md-3">
+      <input name="phone" class="form-control" placeholder="电话 *" required
+             value="{{ form.phone|default:'' }}">
+    </div>
+  </div>
+  <div class="mt-2">
+    <input name="note" class="form-control" placeholder="其他要求（交期、付款方式等，可选）"
+           value="{{ form.note|default:'' }}">
+  </div>
+</div></div>
+
+<button class="btn btn-primary btn-lg px-5">提交询价</button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function bindRow(row) {
+  const text = row.querySelector('[name=row_text]');
+  const len = row.querySelector('[name=row_len]');
+  const hint = row.querySelector('.price-hint');
+  let timer = null;
+  async function lookup() {
+    if (!text.value.trim()) { hint.textContent = ''; return; }
+    hint.textContent = '查询中…';
+    const resp = await fetch(`/portal/price/?q=${encodeURIComponent(text.value)}&length=${encodeURIComponent(len.value || 1)}`,
+      {credentials: 'same-origin'});
+    const data = await resp.json();
+    if (data.ok) {
+      hint.innerHTML = `<span class="mono">${data.price_per_m}</span> 元/m` +
+        (len.value ? ` · 小计 <span class="mono">${data.total}</span> 元` : '');
+    } else {
+      hint.textContent = data.error;
+    }
+  }
+  [text, len].forEach(el => el.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(lookup, 500);
+  }));
+  row.querySelector('.del-row').addEventListener('click', () => {
+    if (document.querySelectorAll('.p-row').length > 1) row.remove();
+  });
+}
+document.querySelectorAll('.p-row').forEach(bindRow);
+document.getElementById('add-row').addEventListener('click', () => {
+  const clone = document.querySelector('.p-row').cloneNode(true);
+  clone.querySelectorAll('input').forEach(i => i.value = '');
+  clone.querySelector('.price-hint').textContent = '';
+  document.querySelector('#rows tbody').appendChild(clone);
+  bindRow(clone);
+});
+</script>
+{% endblock %}

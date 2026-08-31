@@ -264,6 +264,10 @@ class PricingParams(models.Model):
     boss_threshold_amount = models.DecimalField(
         '大单审批阈值 元', max_digits=14, decimal_places=2, default=Decimal('500000'),
         help_text='整单金额达到该值时，经理审批后还需老板终审')
+    portal_enabled = models.BooleanField('启用客户自助询价门户', default=True)
+    portal_code = models.CharField(
+        '门户访问码', max_length=30, blank=True, default='',
+        help_text='留空则无需访问码；设置后客户需输入访问码进入')
     updated_at = models.DateTimeField('更新时间', auto_now=True)
 
     class Meta:
@@ -316,6 +320,11 @@ class Quotation(models.Model):
         '铜价来源', max_length=20, blank=True, default='')
     cu_price_time = models.DateTimeField('铜价生效时间', null=True, blank=True)
     note = models.TextField('备注', blank=True)
+    share_token = models.CharField(
+        '客户链接令牌', max_length=40, blank=True, default='', db_index=True,
+        help_text='生成后客户可通过 /q/<token>/ 免登录查看并签收报价单')
+    signed_at = models.DateTimeField('客户签收时间', null=True, blank=True)
+    signed_by = models.CharField('签收人', max_length=50, blank=True, default='')
 
     class Meta:
         verbose_name = '报价单'
@@ -468,3 +477,54 @@ class QuoteSendLog(models.Model):
     def __str__(self):
         return '%s → %s (%s)' % (self.quotation.number, self.sent_to,
                                  self.sent_at.strftime('%m-%d %H:%M'))
+
+
+class InquiryLead(models.Model):
+    """客户自助询价门户提交的线索。"""
+
+    STATUS_NEW = 'new'
+    STATUS_HANDLED = 'handled'
+    STATUS_CHOICES = [(STATUS_NEW, '新线索'), (STATUS_HANDLED, '已处理')]
+
+    company = models.CharField('公司名称', max_length=100)
+    contact_name = models.CharField('联系人', max_length=50)
+    phone = models.CharField('联系电话', max_length=30)
+    note = models.TextField('留言', blank=True)
+    created_at = models.DateTimeField('提交时间', auto_now_add=True)
+    status = models.CharField('状态', max_length=10, choices=STATUS_CHOICES,
+                              default=STATUS_NEW)
+    handled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='leads_handled', verbose_name='处理人')
+    quotation = models.ForeignKey(
+        Quotation, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='from_leads', verbose_name='转出的报价单')
+
+    class Meta:
+        verbose_name = '询价线索'
+        verbose_name_plural = '询价线索'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s %s %s' % (self.company, self.contact_name,
+                             self.created_at.strftime('%m-%d %H:%M'))
+
+
+class InquiryLeadItem(models.Model):
+    lead = models.ForeignKey(
+        InquiryLead, on_delete=models.CASCADE, related_name='items', verbose_name='线索')
+    spec = models.ForeignKey(
+        CableSpec, on_delete=models.PROTECT, related_name='lead_items',
+        verbose_name='规格')
+    spec_text = models.CharField('规格快照', max_length=100, blank=True)
+    length_m = models.DecimalField('长度 m', max_digits=12, decimal_places=2)
+    quoted_price_per_m = models.DecimalField(
+        '门户目录价快照 元/m', max_digits=10, decimal_places=4, default=0,
+        help_text='客户在门户看到的价格（目录价，不含成本信息）')
+
+    class Meta:
+        verbose_name = '询价明细'
+        verbose_name_plural = '询价明细'
+
+    def __str__(self):
+        return '%s × %sm' % (self.spec_text or self.spec, self.length_m)

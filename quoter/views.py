@@ -10,8 +10,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import excel
-from .models import (CableSeries, CableSpec, Customer, CustomerTier, Material,
-                     MaterialPrice, Payment, PricingParams, QuoteSendLog,
+from .models import (CableSeries, CableSpec, Customer, CustomerTier, InquiryLead,
+                     Material, MaterialPrice, Payment, PricingParams, QuoteSendLog,
                      Quotation, QuotationItem, SalesOrder)
 from .pricing import (MissingPriceError, jsonable, margin_pct,
                       price_spec, resolve_series_layout)
@@ -757,6 +757,81 @@ def payment_add(request, pk):
     messages.success(request, '已登记回款 %s 元，未回款余额 %s 元'
                      % (amount, order.balance()))
     return redirect('order_detail', pk=pk)
+
+
+# ---------------------------------------------------------------- 询价线索与客户链接
+
+@login_required
+def lead_list(request):
+    leads = InquiryLead.objects.prefetch_related('items__spec__series').order_by('-created_at')
+    return render(request, 'quoter/lead_list.html', {'leads': leads[:200]})
+
+
+@login_required
+@require_POST
+def lead_to_quote(request, pk):
+    """把询价线索一键转成报价单草稿（按快照价格）。"""
+    import secrets as _secrets
+    lead = get_object_or_404(InquiryLead.objects.prefetch_related('items'), pk=pk)
+    if lead.quotation_id:
+        messages.error(request, '该线索已转过报价单 %s' % lead.quotation.number)
+        return redirect('quote_detail', pk=lead.quotation_id)
+    customer = Customer.objects.filter(name=lead.company).first()
+    if customer is None:
+        customer = Customer.objects.create(
+            name=lead.company, contact=lead.contact_name, phone=lead.phone,
+            notes='门户询价线索 %s' % lead.created_at.strftime('%Y-%m-%d'))
+    params = PricingParams.load()
+    snap = cu_snapshot() or {}
+    with transaction.atomic():
+        quote = Quotation.objects.create(
+            number=next_number(), customer=customer, created_by=request.user,
+            valid_until=timezone.localdate() + timedelta(days=params.quote_valid_days),
+            base_cu_price=snap.get('price') or 0,
+            cu_price_source=snap.get('source') or '',
+            cu_price_time=snap.get('time'),
+            note='来源：门户询价（%s %s %s）%s' % (
+                lead.company, lead.contact_name, lead.phone, lead.note))
+        for i, item in enumerate(lead.items.all()):
+            spec = item.spec
+            try:
+                bd = price_spec(spec)
+                list_m = bd['list_per_m'].quantize(Decimal('0.0001'))
+                detail = jsonable(bd)
+            except MissingPriceError:
+                messages.warning(request, '规格 %s 价格缺失，请提交前补录价格' % item.spec_text)
+                list_m = Decimal('0')
+                detail = {}
+            QuotationItem.objects.create(
+                quotation=quote, spec=spec, spec_text=item.spec_text,
+                length_m=item.length_m,
+                list_price_per_m=list_m,
+                final_price_per_m=list_m,
+                amount=(list_m * item.length_m).quantize(Decimal('0.01')),
+                cost_detail=detail, sort_order=i)
+        lead.status = InquiryLead.STATUS_HANDLED
+        lead.handled_by = request.user
+        lead.quotation = quote
+        lead.save(update_fields=['status', 'handled_by', 'quotation'])
+    messages.success(request, '线索已转为报价单草稿 %s' % quote.number)
+    return redirect('quote_detail', pk=quote.pk)
+
+
+@login_required
+@require_POST
+def quote_share(request, pk):
+    """生成（或复用）报价单的客户查看链接。"""
+    import secrets as _secrets
+    quote = get_object_or_404(Quotation, pk=pk)
+    if quote.status != Quotation.STATUS_APPROVED:
+        messages.error(request, '只有已审批的报价单可以生成客户链接')
+        return redirect('quote_detail', pk=pk)
+    if not quote.share_token:
+        quote.share_token = _secrets.token_urlsafe(24)
+        quote.save(update_fields=['share_token'])
+    link = request.build_absolute_uri('/q/%s/' % quote.share_token)
+    messages.info(request, '客户链接（免登录，可查看并签收）：%s' % link)
+    return redirect('quote_detail', pk=pk)
 
 
 # ---------------------------------------------------------------- 报表

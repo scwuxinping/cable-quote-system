@@ -1,0 +1,27 @@
+{% extends 'quoter/portal/base_portal.html' %}
+{% block title %}询价已提交 - {{ params.company_name }}{% endblock %}
+{% block content %}
+<div class="card"><div class="card-body p-4">
+  <div class="text-center mb-3">
+    <div class="display-6">✅</div>
+    <h4 class="mt-2">询价已提交</h4>
+    <div class="text-muted">业务员将尽快与您联系，以下为提交时的参考目录价：</div>
+  </div>
+  <table class="table table-bordered align-middle">
+    <thead><tr><th>型号规格</th><th>长度(m)</th><th class="text-end">参考单价(元/m)</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.text }}</td>
+        <td class="mono">{{ r.length }}</td>
+        <td class="text-end mono">{{ r.price|floatformat:4 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="small text-muted">价格随铜价每日浮动，最终以业务员正式报价单为准。</div>
+  <div class="text-center mt-3">
+    <a class="btn btn-outline-primary" href="{% url 'portal_home' %}">继续询价</a>
+  </div>
+</div></div>
+{% endblock %}

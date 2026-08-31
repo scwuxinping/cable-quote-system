@@ -1,0 +1,57 @@
+{% extends 'quoter/portal/base_portal.html' %}
+{% block title %}{{ quote.number }} - {{ params.company_name }}{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-body p-4">
+    <div class="text-center border-bottom pb-3 mb-3">
+      <div class="fs-5 fw-bold">{{ params.company_name }}</div>
+      <div style="font-size:1.5rem;letter-spacing:6px;">产品报价单</div>
+      <div class="small text-muted">{{ quote.number }}</div>
+    </div>
+    <div class="row small mb-3">
+      <div class="col"><b>客户：</b>{{ quote.customer.name }}</div>
+      <div class="col"><b>日期：</b>{{ quote.created_at|date:'Y-m-d' }}</div>
+      <div class="col"><b>有效期至：</b>{{ quote.valid_until|date:'Y-m-d' }}</div>
+    </div>
+    <table class="table table-bordered align-middle">
+      <thead><tr><th>序号</th><th>型号规格</th><th>单价(元/m)</th><th>长度(m)</th>
+        <th class="text-end">金额(元)</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td class="text-center">{{ forloop.counter }}</td>
+          <td>{{ item.spec_text }}</td>
+          <td class="mono">{{ item.final_price_per_m|floatformat:4 }}</td>
+          <td class="mono">{{ item.length_m }}</td>
+          <td class="text-end mono">{{ item.amount|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="table-light fw-bold">
+          <td colspan="4" class="text-end">合计（{% if params.price_with_tax %}含 {{ params.tax_rate_pct }}% 税{% else %}不含税{% endif %}，含运费 {{ quote.freight|floatformat:2 }} 元）</td>
+          <td class="text-end mono">{{ quote.total_amount|floatformat:2 }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="small text-muted">{{ params.quote_note }}</div>
+
+    {% if quote.signed_at %}
+    <div class="alert alert-success mt-3">
+      ✅ 客户 <b>{{ quote.signed_by }}</b> 已于 {{ quote.signed_at|date:'Y年m月d日 H:i' }} 确认收到本报价。
+    </div>
+    {% else %}
+    <div class="card mt-3" style="background:#f8f9fa"><div class="card-body">
+      <h6>确认收到报价</h6>
+      <form method="post" action="{% url 'portal_sign' quote.share_token %}" class="row g-2">
+        {% csrf_token %}
+        <div class="col-md-4">
+          <input name="signed_by" class="form-control" placeholder="您的姓名" required>
+        </div>
+        <div class="col-md-3">
+          <button class="btn btn-success w-100">确认签收</button>
+        </div>
+      </form>
+    </div></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends 'quoter/portal/base_portal.html' %}
+{% block content %}
+<div class="card"><div class="card-body p-4">
+  <h5 class="mb-3">在线询价 · 访问验证</h5>
+  {% if code_error %}<div class="alert alert-danger py-2">{{ code_error }}</div>{% endif %}
+  <form method="post" class="row g-2">
+    {% csrf_token %}
+    <input type="hidden" name="op" value="code">
+    <div class="col-md-6">
+      <input name="code" class="form-control" placeholder="请输入业务员提供的访问码" required autofocus>
+    </div>
+    <div class="col-md-3">
+      <button class="btn btn-primary w-100">进入询价</button>
+    </div>
+  </form>
+</div></div>
+{% endblock %}

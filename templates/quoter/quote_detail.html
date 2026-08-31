@@ -39,6 +39,13 @@
         {% csrf_token %}<button class="btn btn-success">转为订单</button>
       </form>
       {% endif %}
+      {% if quote.share_token %}
+        <a class="btn btn-outline-primary" href="/q/{{ quote.share_token }}/" target="_blank">客户查看链接</a>
+      {% else %}
+      <form method="post" action="{% url 'quote_share' quote.pk %}" class="d-inline">
+        {% csrf_token %}<button class="btn btn-outline-primary">生成客户链接</button>
+      </form>
+      {% endif %}
     {% endif %}
     {% if quote.status == 'draft' and quote.created_by_id == user.id or quote.status == 'draft' and is_manager %}
     <form method="post" action="{% url 'quote_delete' quote.pk %}" class="d-inline"
@@ -70,8 +77,9 @@
       </div>
       <div class="col"><b>报价口径：</b>{% if params.price_with_tax %}含 {{ params.tax_rate_pct }}% 增值税{% else %}不含税{% endif %}</div>
       <div class="col"><b>整单折扣：</b>{{ quote.discount }}</div>
-      <div class="col"><b>实际毛利率：</b>
-        {% if margin is None %}-{% else %}{{ margin|floatformat:2 }}%{% endif %}
+      <div class="col">
+        {% if quote.signed_at %}<span class="badge text-bg-success">客户已签收：{{ quote.signed_by }} {{ quote.signed_at|date:'m-d H:i' }}</span>
+        {% else %}<b>实际毛利率：</b>{% if margin is None %}-{% else %}{{ margin|floatformat:2 }}%{% endif %}{% endif %}
       </div>
     </div>
 

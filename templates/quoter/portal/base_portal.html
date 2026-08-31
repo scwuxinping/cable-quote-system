@@ -1,0 +1,31 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}在线询价{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'app.css' %}">
+</head>
+<body>
+<nav class="navbar navbar-dark" style="background:#0d5eaf">
+  <div class="container">
+    <span class="navbar-brand">⚡ {{ params.company_name }}</span>
+  </div>
+</nav>
+<div class="container py-4" style="max-width:860px">
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+  {% block content %}{% endblock %}
+  <footer class="text-center text-muted small mt-4">
+    报价基于当日铜价，仅供参考；最终以正式报价单为准。
+  </footer>
+</div>
+<script src="{% static 'vendor/bootstrap.bundle.min.js' %}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

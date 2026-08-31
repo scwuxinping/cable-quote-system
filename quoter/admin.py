@@ -1,8 +1,9 @@
 from django.contrib import admin
 
-from .models import (CableSeries, CableSpec, Customer, CustomerTier, Material,
-                     MaterialPrice, Payment, PricingParams, QuoteSendLog,
-                     Quotation, QuotationItem, SalesOrder)
+from .models import (CableSeries, CableSpec, Customer, CustomerTier, InquiryLead,
+                     InquiryLeadItem, Material, MaterialPrice, Payment,
+                     PricingParams, QuoteSendLog, Quotation, QuotationItem,
+                     SalesOrder)
 
 
 @admin.register(Material)
@@ -98,6 +99,25 @@ class SalesOrderAdmin(admin.ModelAdmin):
 class QuoteSendLogAdmin(admin.ModelAdmin):
     list_display = ('quotation', 'sent_to', 'sent_by', 'sent_at', 'note')
     search_fields = ('quotation__number', 'sent_to')
+
+
+class InquiryLeadItemInline(admin.TabularInline):
+    model = InquiryLeadItem
+    extra = 0
+    readonly_fields = ('spec_text', 'length_m', 'quoted_price_per_m')
+
+
+@admin.register(InquiryLead)
+class InquiryLeadAdmin(admin.ModelAdmin):
+    list_display = ('company', 'contact_name', 'phone', 'created_at', 'status',
+                    'quotation_link')
+    list_filter = ('status',)
+    search_fields = ('company', 'contact_name', 'phone')
+    inlines = [InquiryLeadItemInline]
+
+    @admin.display(description='报价单')
+    def quotation_link(self, obj):
+        return obj.quotation.number if obj.quotation else ''
 
 
 @admin.register(Quotation)

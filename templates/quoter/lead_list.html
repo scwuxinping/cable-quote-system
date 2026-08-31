@@ -1,0 +1,50 @@
+{% extends 'quoter/base.html' %}
+{% block title %}询价线索 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">询价线索（客户门户提交）</h4>
+
+<div class="card"><div class="card-body">
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead><tr><th>提交时间</th><th>公司</th><th>联系人/电话</th><th>明细</th>
+      <th>状态</th><th></th></tr></thead>
+    <tbody>
+      {% for lead in leads %}
+      <tr>
+        <td class="mono small">{{ lead.created_at|date:'m-d H:i' }}</td>
+        <td>
+          <b>{{ lead.company }}</b>
+          {% if lead.note %}<div class="small text-muted">{{ lead.note }}</div>{% endif %}
+        </td>
+        <td class="small">{{ lead.contact_name }}<br>{{ lead.phone }}</td>
+        <td class="small">
+          {% for it in lead.items.all %}
+          <div>{{ it.spec_text }} × {{ it.length_m }}m</div>
+          {% endfor %}
+        </td>
+        <td>
+          {% if lead.status == 'new' %}<span class="badge text-bg-warning">新线索</span>
+          {% else %}<span class="badge text-bg-success">已处理</span>{% endif %}
+          {% if lead.quotation %}
+          <div class="small"><a href="{% url 'quote_detail' lead.quotation.pk %}">{{ lead.quotation.number }}</a></div>
+          {% endif %}
+        </td>
+        <td class="text-end">
+          {% if lead.status == 'new' %}
+          <form method="post" action="{% url 'lead_to_quote' lead.pk %}" class="d-inline"
+                onsubmit="return confirm('按当前目录价转为报价单草稿？')">
+            {% csrf_token %}
+            <button class="btn btn-sm btn-primary">转报价单</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="text-center text-muted py-4">暂无线索。客户门户地址：
+        <code>/portal/</code>（可在计价参数中设置访问码）</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+</div></div>
+{% endblock %}

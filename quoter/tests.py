@@ -3,9 +3,9 @@ from decimal import Decimal
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import (CableSeries, CableSpec, Customer, CustomerTier, Material,
-                     MaterialPrice, Payment, PricingParams, Quotation,
-                     QuotationItem, SalesOrder)
+from .models import (CableSeries, CableSpec, Customer, CustomerTier, InquiryLead,
+                     InquiryLeadItem, Material, MaterialPrice, Payment,
+                     PricingParams, Quotation, QuotationItem, SalesOrder)
 from .pricing import (MissingPriceError, margin_pct, normalize_layout, parse_input,
                       parse_layout, price_spec, resolve_series_layout)
 from .specgen import compute_weights
@@ -515,4 +515,114 @@ class Phase2Tests(TestCase):
         self.assertEqual(mp.source, MaterialPrice.SOURCE_LME)
         self.assertEqual(mp.price, Decimal('75.0750'))
         self.assertEqual(mp.exchange_rate, Decimal('7.15'))
+
+class PortalTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+        from datetime import timedelta
+        cu = _mat('CU', '8.89', '75')
+        xlpe = _mat('XLPE', '0.92', '12.5', loss='3')
+        pvc = _mat('PVC', '1.40', '9.2', loss='3')
+        series, _ = CableSeries.objects.update_or_create(
+            code='YJV', defaults={'name': 't', 'insulation': xlpe, 'has_sheath': True,
+                                  'sheath_material': pvc,
+                                  'insulation_thickness': {'16': '0.7'},
+                                  'core_options': ['4'], 'sections': [16]})
+        self.series = series
+        spec, _ = CableSpec.objects.update_or_create(
+            series=series, layout='4x16',
+            defaults={'conductor_material': cu, 'cores_total': 4,
+                      'section_total': Decimal('64'), 'conductor_weight': Decimal('580'),
+                      'insulation_weight': Decimal('44'), 'sheath_weight': Decimal('118')})
+        self.spec = spec
+        self.sales = User.objects.create_user('portal_sales')
+        self.cust = Customer.objects.create(name='门户客户')
+        self.quote = Quotation.objects.create(
+            number='PT-001', customer=self.cust, created_by=self.sales,
+            valid_until=timezone.localdate() + timedelta(days=3),
+            status=Quotation.STATUS_APPROVED)
+        QuotationItem.objects.create(
+            quotation=self.quote, spec=spec, spec_text='YJV 4×16',
+            length_m=Decimal('100'), list_price_per_m=Decimal('50'),
+            final_price_per_m=Decimal('50'), amount=Decimal('5000'),
+            cost_detail={'cost_km': '40000', 'tax_mult': '1.13'})
+
+    def test_portal_price_no_cost_leak(self):
+        from django.test import Client
+        resp = Client().get('/portal/price/', {'q': 'YJV 4x16', 'length': '100'})
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn('price_per_m', body)
+        self.assertNotIn('cost', body.lower())
+        self.assertNotIn('floor', body.lower())
+
+    def test_portal_inquiry_submission(self):
+        from django.test import Client
+        c = Client()
+        resp = c.post('/portal/', {
+            'op': 'inquiry', 'company': '某某建设', 'contact': '王工',
+            'phone': '13800000000', 'note': '急需',
+            'row_text': ['YJV 4x16', 'YJV-0.6/1KV 4x16'], 'row_len': ['300', '500']})
+        self.assertEqual(resp.status_code, 302)
+        lead = InquiryLead.objects.get(company='某某建设')
+        self.assertEqual(lead.items.count(), 2)
+        self.assertTrue(all(it.quoted_price_per_m > 0 for it in lead.items.all()))
+
+    def test_portal_code_required(self):
+        from django.test import Client
+        p = PricingParams.load()
+        p.portal_code = '8888'
+        p.save()
+        c = Client()
+        # 无码 → 显示访问码页
+        resp = c.get('/portal/')
+        self.assertNotIn('row_text', resp.content.decode())
+        # 错码
+        resp = c.post('/portal/', {'op': 'code', 'code': '0000'})
+        self.assertIn('访问码不正确', resp.content.decode())
+        # 对码后可进入
+        resp = c.post('/portal/', {'op': 'code', 'code': '8888'}, follow=True)
+        self.assertIn('row_text', resp.content.decode())
+
+    def test_share_link_and_sign(self):
+        from django.test import Client
+        self.quote.share_token = 'testtoken123'
+        self.quote.save()
+        c = Client()
+        # 未审批的单不可见
+        self.quote.status = Quotation.STATUS_DRAFT
+        self.quote.save()
+        self.assertEqual(c.get('/q/testtoken123/').status_code, 404)
+        self.quote.status = Quotation.STATUS_APPROVED
+        self.quote.save()
+        resp = c.get('/q/testtoken123/')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn('确认签收', body)
+        self.assertNotIn('成本', body)      # 客户页不出现成本字样
+        # 签收
+        resp = c.post('/q/testtoken123/sign/', {'signed_by': '王老板'})
+        self.quote.refresh_from_db()
+        self.assertEqual(self.quote.signed_by, '王老板')
+        self.assertIsNotNone(self.quote.signed_at)
+
+    def test_lead_to_quote(self):
+        from django.test import Client
+        lead = InquiryLead.objects.create(
+            company='门户客户', contact_name='李工', phone='13900000000')
+        InquiryLeadItem.objects.create(
+            lead=lead, spec=self.spec, spec_text='YJV 4×16',
+            length_m=Decimal('200'), quoted_price_per_m=Decimal('50'))
+        c = Client()
+        c.force_login(self.sales)
+        resp = c.post('/leads/%d/to-quote/' % lead.pk)
+        self.assertEqual(resp.status_code, 302)
+        lead.refresh_from_db()
+        self.assertEqual(lead.status, InquiryLead.STATUS_HANDLED)
+        q = lead.quotation
+        self.assertEqual(q.items.count(), 1)
+        self.assertEqual(q.items.first().length_m, Decimal('200'))
+        # 复用已有客户（门户客户 已存在）
+        self.assertEqual(q.customer.name, '门户客户')
 
