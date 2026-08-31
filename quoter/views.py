@@ -248,6 +248,20 @@ def _build_item(quote, spec, length, sort):
 
 @login_required
 def quote_new(request):
+    return _quote_form(request, None)
+
+
+@login_required
+def quote_edit(request, pk):
+    quote = get_object_or_404(Quotation, pk=pk)
+    if not _can_edit(quote, request.user):
+        messages.error(request, '只有草稿/驳回状态的报价单可以编辑')
+        return redirect('quote_detail', pk=pk)
+    return _quote_form(request, quote)
+
+
+def _quote_form(request, quote=None):
+    """新建/编辑报价单共用表单。编辑时按当前价格重算全部快照。"""
     if request.method == 'POST':
         customer_id = request.POST.get('customer')
         discount_raw = request.POST.get('discount', '1').strip() or '1'
@@ -301,35 +315,65 @@ def quote_new(request):
                 params = PricingParams.load()
                 snap = cu_snapshot() or {}
                 with transaction.atomic():
-                    quote = Quotation.objects.create(
-                        number=next_number(), customer=customer,
-                        created_by=request.user,
-                        valid_until=timezone.localdate() + timedelta(
-                            days=params.quote_valid_days),
-                        discount=discount, note=note, freight=freight,
-                        base_cu_price=snap.get('price') or 0,
-                        cu_price_source=snap.get('source') or '',
-                        cu_price_time=snap.get('time'))
+                    if quote is None:
+                        quote = Quotation.objects.create(
+                            number=next_number(), customer=customer,
+                            created_by=request.user,
+                            valid_until=timezone.localdate() + timedelta(
+                                days=params.quote_valid_days),
+                            base_cu_price=snap.get('price') or 0,
+                            cu_price_source=snap.get('source') or '',
+                            cu_price_time=snap.get('time'))
+                        action = '创建'
+                    else:
+                        quote.customer = customer
+                        quote.base_cu_price = snap.get('price') or 0
+                        quote.cu_price_source = snap.get('source') or ''
+                        quote.cu_price_time = snap.get('time')
+                        quote.save()
+                        quote.items.all().delete()
+                        action = '更新'
+                    quote.discount = discount
+                    quote.freight = freight
+                    quote.note = note
+                    quote.save()
                     for i, (spec, ln) in enumerate(pairs):
                         _build_item(quote, spec, ln, i).save()
                 if tier_applied:
                     messages.info(request, tier_applied)
-                messages.success(request, '报价单 %s 已创建（草稿）' % quote.number)
+                messages.success(request, '报价单 %s 已%s（草稿）' % (quote.number, action))
                 return redirect('quote_detail', pk=quote.pk)
             except MissingPriceError as exc:
-                messages.error(request, '创建失败：%s，请先到“价格维护”录入今日价格' % exc)
+                messages.error(request, '保存失败：%s，请先到“价格维护”录入今日价格' % exc)
     customers = Customer.objects.all()
     series_list = CableSeries.objects.filter(active=True)
-    default_discount = '1.000'
-    cid = request.POST.get('customer') or request.GET.get('customer')
-    if cid:
-        c = Customer.objects.filter(pk=cid).first()
+    if quote is not None:
+        default_discount = str(quote.discount)
+        default_customer = quote.customer_id
+        default_freight = str(quote.freight)
+        default_note = quote.note
+        cur_items = [
+            {'spec_id': it.spec_id, 'length': str(it.length_m),
+             'series_id': it.spec.series_id, 'display': it.spec.display}
+            for it in quote.items.all()]
+    else:
+        default_discount = '1.000'
+        default_customer = request.POST.get('customer') or request.GET.get('customer')
+        c = Customer.objects.filter(pk=default_customer).first() if default_customer else None
         if c:
             default_discount = str(c.discount)
+        default_freight = '0'
+        default_note = ''
+        cur_items = []
     return render(request, 'quoter/quote_form.html', {
         'customers': customers,
         'series_list': series_list,
         'default_discount': default_discount,
+        'default_customer': default_customer,
+        'default_freight': default_freight,
+        'default_note': default_note,
+        'cur_items': cur_items,
+        'editing_quote': quote,
     })
 
 
@@ -860,7 +904,104 @@ def quote_share(request, pk):
     return redirect('quote_detail', pk=pk)
 
 
+# ---------------------------------------------------------------- 客户管理
+
+@login_required
+def customer_list(request):
+    return render(request, 'quoter/customer_list.html', {
+        'customers': Customer.objects.prefetch_related('tiers', 'quotations').all(),
+    })
+
+
+def _customer_form(request, customer=None):
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        errors = []
+        if not name:
+            errors.append('请填写客户名称')
+        if (Customer.objects.exclude(pk=customer.pk if customer else None)
+                .filter(name=name).exists()):
+            errors.append('客户名称已存在')
+        discount = _parse_decimal(request.POST.get('discount', '1'), None,
+                                  Decimal('0.5'), Decimal('1.5'))
+        if discount is None:
+            errors.append('等级折扣无效（0.5~1.5）')
+        if errors:
+            for e in errors:
+                messages.error(request, e)
+        else:
+            customer = customer or Customer()
+            customer.name = name
+            customer.level = request.POST.get('level', 'B')
+            customer.discount = discount
+            customer.contact = request.POST.get('contact', '').strip()
+            customer.phone = request.POST.get('phone', '').strip()
+            customer.notes = request.POST.get('notes', '').strip()
+            customer.save()
+            customer.tiers.all().delete()
+            mins = request.POST.getlist('tier_min')
+            discs = request.POST.getlist('tier_disc')
+            for m, d in zip(mins, discs):
+                m, d = m.strip(), d.strip()
+                if not m or not d:
+                    continue
+                tm = _parse_decimal(m, None, Decimal('0.01'), Decimal('10') ** 8)
+                td = _parse_decimal(d, None, Decimal('0.5'), Decimal('1.5'))
+                if tm is None or td is None:
+                    continue
+                CustomerTier.objects.create(customer=customer, min_length_m=tm,
+                                             discount=td)
+            messages.success(request, '客户 %s 已保存' % customer.name)
+            return redirect('customer_list')
+    return render(request, 'quoter/customer_form.html', {
+        'customer': customer,
+        'level_choices': Customer.LEVEL_CHOICES,
+    })
+
+
+@login_required
+def customer_new(request):
+    return _customer_form(request)
+
+
+@login_required
+def customer_edit(request, pk):
+    customer = get_object_or_404(Customer, pk=pk)
+    return _customer_form(request, customer)
+
+
 # ---------------------------------------------------------------- 报表
+
+@login_required
+def report(request):
+    from django.db.models import Count, Sum
+
+    month_first = timezone.localdate().replace(day=1)
+    quotes_m = Quotation.objects.filter(created_at__gte=month_first)
+    by_sales = (quotes_m.values('created_by__username')
+                .annotate(n=Count('id'), amount=Sum('items__amount'))
+                .order_by('-amount'))
+    by_customer = (Quotation.objects.filter(
+        status=Quotation.STATUS_APPROVED, created_at__gte=month_first)
+        .values('customer__name')
+        .annotate(n=Count('id'), amount=Sum('items__amount'))
+        .order_by('-amount')[:10])
+    top_specs = (QuotationItem.objects.filter(
+        quotation__status=Quotation.STATUS_APPROVED,
+        quotation__created_at__gte=month_first)
+        .values('spec_text')
+        .annotate(n=Count('id'), length=Sum('length_m'), amount=Sum('amount'))
+        .order_by('-amount')[:10])
+    return render(request, 'quoter/report.html', {
+        'month': month_first.strftime('%Y-%m'),
+        'by_sales': by_sales,
+        'by_customer': by_customer,
+        'top_specs': top_specs,
+        'monthly': monthly_stats(),
+    })
+
+
+# ---------------------------------------------------------------- 报表（旧）
 
 def monthly_stats(months=6):
     """近 N 个月：报价数 / 审批数 / 转单数 / 订单额 / 回款额。"""

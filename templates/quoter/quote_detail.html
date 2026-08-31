@@ -12,6 +12,9 @@
     {% else %}<span class="badge text-bg-light text-dark border">草稿</span>{% endif %}
   </h4>
   <div class="d-flex gap-2">
+    {% if can_edit %}
+    <a class="btn btn-outline-primary" href="{% url 'quote_edit' quote.pk %}">编辑</a>
+    {% endif %}
     {% if can_submit %}
     <form method="post" action="{% url 'quote_submit' quote.pk %}" class="d-inline"
           onsubmit="return confirm('提交后价格快照不再变动，确认提交？')">

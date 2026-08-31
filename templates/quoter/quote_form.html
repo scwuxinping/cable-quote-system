@@ -1,7 +1,7 @@
 {% extends 'quoter/base.html' %}
-{% block title %}新建报价单 - 电缆报价系统{% endblock %}
+{% block title %}{% if editing_quote %}编辑{% else %}新建{% endif %}报价单 - 电缆报价系统{% endblock %}
 {% block content %}
-<h4 class="mb-3">新建报价单</h4>
+<h4 class="mb-3">{% if editing_quote %}编辑报价单 {{ editing_quote.number }}（保存后重算价格快照）{% else %}新建报价单{% endif %}</h4>
 <form method="post">
 {% csrf_token %}
 <div class="card mb-3"><div class="card-body">
@@ -11,7 +11,9 @@
       <select name="customer" class="form-select" required>
         <option value="">— 选择客户 —</option>
         {% for c in customers %}
-        <option value="{{ c.pk }}" data-discount="{{ c.discount }}">{{ c.name }}（{{ c.get_level_display }}）</option>
+        <option value="{{ c.pk }}" data-discount="{{ c.discount }}"
+          {% if c.pk|stringformat:"s" == default_customer|stringformat:"s" %}selected{% endif %}>
+          {{ c.name }}（{{ c.get_level_display }}）</option>
         {% endfor %}
       </select>
     </div>
@@ -30,12 +32,13 @@
     </div>
     <div class="col-md-2">
       <label class="form-label">运费(元)</label>
-      <input name="freight" value="0" class="form-control" placeholder="0">
+      <input name="freight" value="{{ default_freight }}" class="form-control" placeholder="0">
       <div class="form-text">计入合计</div>
     </div>
     <div class="col-md-4">
       <label class="form-label">备注</label>
-      <input name="note" class="form-control" placeholder="交期、付款方式等（可选）">
+      <input name="note" class="form-control" placeholder="交期、付款方式等（可选）"
+             value="{{ default_note }}">
     </div>
   </div>
 </div></div>
@@ -74,31 +77,52 @@
 
 {% block scripts %}
 <script>
-async function loadSpecs(seriesSel, specSel) {
+async function loadSpecs(seriesSel, specSel, presetSpecId) {
   specSel.innerHTML = '<option>加载中…</option>';
   specSel.disabled = true;
   const resp = await fetch(`/api/specs/?series=${seriesSel.value}`, {credentials: 'same-origin'});
   const data = await resp.json();
   specSel.innerHTML = '<option value="">— 规格 —</option>' +
-    data.specs.map(s => `<option value="${s.id}">${s.display}</option>`).join('');
+    data.specs.map(s => `<option value="${s.id}"${String(s.id) === String(presetSpecId) ? ' selected' : ''}>${s.display}</option>`).join('');
   specSel.disabled = false;
 }
 
-document.querySelectorAll('.item-row').forEach(bindRow);
 function bindRow(row) {
   const seriesSel = row.querySelector('.series-sel');
   const specSel = row.querySelector('.spec-sel');
+  const preset = row.dataset.specId;
+  if (preset) loadSpecs(seriesSel, specSel, preset);
   seriesSel.addEventListener('change', () => loadSpecs(seriesSel, specSel));
   row.querySelector('.del-row').addEventListener('click', () => {
     if (document.querySelectorAll('.item-row').length > 1) row.remove();
   });
 }
 
+// 模板行 + 已有明细行
+const firstRow = document.querySelector('.item-row');
+bindRow(firstRow);
+{% for it in cur_items %}
+(function () {
+  const clone = firstRow.cloneNode(true);
+  clone.dataset.specId = '{{ it.spec_id }}';
+  clone.querySelector('[name=item_len]').value = '{{ it.length }}';
+  clone.querySelector('.series-sel').value = '{{ it.series_id }}';
+  document.querySelector('#items tbody').appendChild(clone);
+  bindRow(clone);
+})();
+{% endfor %}
+// 编辑模式：模板行若为空且已有明细，移除
+{% if cur_items %}
+firstRow.remove();
+{% endif %}
+
 document.getElementById('add-row').addEventListener('click', () => {
   const tpl = document.querySelector('.item-row');
   const clone = tpl.cloneNode(true);
+  clone.removeAttribute('data-spec-id');
   clone.querySelector('.spec-sel').disabled = true;
   clone.querySelector('.spec-sel').innerHTML = '<option value="">先选型号</option>';
+  clone.querySelector('[name=item_len]').value = '';
   document.querySelector('#items tbody').appendChild(clone);
   bindRow(clone);
 });

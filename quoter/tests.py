@@ -707,3 +707,105 @@ class Phase4Tests(TestCase):
         # 超出表上限 → 用最大档
         self.assertEqual(armor_thickness(80, series=self.series), Decimal('0.63'))
 
+class Phase5Tests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+        from datetime import timedelta
+        cu = _mat('CU', '8.89', '75')
+        xlpe = _mat('XLPE', '0.92', '12.5', loss='3')
+        pvc = _mat('PVC', '1.40', '9.2', loss='3')
+        series, _ = CableSeries.objects.update_or_create(
+            code='YJV', defaults={'name': 't', 'insulation': xlpe, 'has_sheath': True,
+                                  'sheath_material': pvc,
+                                  'insulation_thickness': {'16': '0.7'},
+                                  'core_options': ['4'], 'sections': [16]})
+        self.series = series
+        spec, _ = CableSpec.objects.update_or_create(
+            series=series, layout='4x16',
+            defaults={'conductor_material': cu, 'cores_total': 4,
+                      'section_total': Decimal('64'), 'conductor_weight': Decimal('580'),
+                      'insulation_weight': Decimal('44'), 'sheath_weight': Decimal('118')})
+        self.spec = spec
+        self.user = User.objects.create_user('p5u')
+        self.cust = Customer.objects.create(name='五期客户')
+
+    def _make_quote(self, status=Quotation.STATUS_DRAFT, discount='1.000'):
+        from datetime import timedelta
+        from django.utils import timezone as tz
+        q = Quotation.objects.create(
+            number='P5-%s-%s' % (status, discount), customer=self.cust,
+            created_by=self.user,
+            valid_until=tz.localdate() + timedelta(days=3),
+            status=status, discount=Decimal(discount))
+        QuotationItem.objects.create(
+            quotation=q, spec=self.spec, spec_text='YJV 4×16',
+            length_m=Decimal('100'), list_price_per_m=Decimal('50'),
+            final_price_per_m=Decimal('50') * Decimal(discount),
+            amount=Decimal('5000') * Decimal(discount),
+            cost_detail={'cost_km': '40000', 'tax_mult': '1.13'})
+        return q
+
+    def test_quote_edit_recalculates(self):
+        from django.test import Client
+        q = self._make_quote(status=Quotation.STATUS_REJECTED, discount='1.000')
+        c = Client()
+        c.force_login(self.user)
+        resp = c.get('/quotes/%d/edit/' % q.pk)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('编辑报价单', resp.content.decode())
+        resp = c.post('/quotes/%d/edit/' % q.pk, {
+            'customer': self.cust.pk, 'discount': '0.950', 'freight': '50',
+            'note': '改折扣重报',
+            'item_spec': [self.spec.pk], 'item_len': ['200']})
+        self.assertEqual(resp.status_code, 302)
+        q.refresh_from_db()
+        self.assertEqual(q.discount, Decimal('0.950'))
+        self.assertEqual(q.freight, Decimal('50'))
+        it = q.items.first()
+        self.assertEqual(it.length_m, Decimal('200'))
+        # 价格按快照目录价 × 新折扣重算
+        self.assertAlmostEqual(float(it.final_price_per_m),
+                               float(it.list_price_per_m) * 0.95, delta=0.01)
+
+    def test_quote_edit_rejected_for_approved(self):
+        from django.test import Client
+        q = self._make_quote(status=Quotation.STATUS_APPROVED)
+        c = Client()
+        c.force_login(self.user)
+        resp = c.post('/quotes/%d/edit/' % q.pk, {'customer': self.cust.pk})
+        self.assertEqual(resp.status_code, 302)
+        q.refresh_from_db()
+        self.assertEqual(q.status, Quotation.STATUS_APPROVED)  # 未被改动
+
+    def test_customer_crud_with_tiers(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.user)
+        resp = c.post('/customers/new/', {
+            'name': '新客户A', 'level': 'A', 'discount': '0.970',
+            'contact': '陈工', 'phone': '13866667777',
+            'tier_min': ['500', '2000'], 'tier_disc': ['0.950', '0.920']})
+        self.assertEqual(resp.status_code, 302)
+        cust = Customer.objects.get(name='新客户A')
+        self.assertEqual(cust.tiers.count(), 2)
+        self.assertEqual(cust.tier_discount(Decimal('2500')), Decimal('0.920'))
+        # 编辑改折扣
+        resp = c.post('/customers/%d/edit/' % cust.pk, {
+            'name': '新客户A', 'level': 'A', 'discount': '0.980',
+            'tier_min': ['1000'], 'tier_disc': ['0.940']})
+        cust.refresh_from_db()
+        self.assertEqual(cust.discount, Decimal('0.980'))
+        self.assertEqual(cust.tiers.count(), 1)
+
+    def test_report_page(self):
+        from django.test import Client
+        self._make_quote(status=Quotation.STATUS_APPROVED)
+        c = Client()
+        c.force_login(self.user)
+        resp = c.get('/report/')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn('按业务员', body)
+        self.assertIn('热门规格', body)
+

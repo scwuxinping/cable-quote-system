@@ -1,0 +1,90 @@
+{% extends 'quoter/base.html' %}
+{% block title %}{{ customer|yesno:'编辑客户,新建客户' }} - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">{% if customer %}编辑客户：{{ customer.name }}{% else %}新建客户{% endif %}</h4>
+
+<form method="post">
+{% csrf_token %}
+<div class="card mb-3"><div class="card-body">
+  <div class="row g-3">
+    <div class="col-md-4">
+      <label class="form-label">客户名称 *</label>
+      <input name="name" class="form-control" required
+             value="{{ customer.name|default:'' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">等级</label>
+      <select name="level" class="form-select">
+        {% for v, label in level_choices %}
+        <option value="{{ v }}" {% if customer.level == v %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">默认折扣</label>
+      <input name="discount" class="form-control mono"
+             value="{{ customer.discount|default:'1.000' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">联系人</label>
+      <input name="contact" class="form-control" value="{{ customer.contact|default:'' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">电话</label>
+      <input name="phone" class="form-control mono" value="{{ customer.phone|default:'' }}">
+    </div>
+  </div>
+  <div class="mt-3">
+    <label class="form-label">备注</label>
+    <input name="notes" class="form-control" value="{{ customer.notes|default:'' }}">
+  </div>
+</div></div>
+
+<div class="card mb-3"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">阶梯价（总长度达到起订量自动套用折扣）</h6>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="add-tier">＋ 添加一档</button>
+  </div>
+  <table class="table table-sm" id="tiers">
+    <thead><tr><th style="width:200px">起订总长度(m)</th><th style="width:200px">折扣</th><th></th></tr></thead>
+    <tbody>
+      {% for t in customer.tiers.all %}
+      <tr class="t-row">
+        <td><input name="tier_min" class="form-control mono" value="{{ t.min_length_m }}"></td>
+        <td><input name="tier_disc" class="form-control mono" value="{{ t.discount }}"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger t-del">删</button></td>
+      </tr>
+      {% empty %}
+      <tr class="t-row">
+        <td><input name="tier_min" class="form-control mono" placeholder="如 500"></td>
+        <td><input name="tier_disc" class="form-control mono" placeholder="如 0.95"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger t-del">删</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+
+<div class="d-flex gap-2">
+  <button class="btn btn-primary px-4">保存</button>
+  <a class="btn btn-outline-secondary" href="{% url 'customer_list' %}">取消</a>
+</div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('add-tier').addEventListener('click', () => {
+  const clone = document.querySelector('.t-row').cloneNode(true);
+  clone.querySelectorAll('input').forEach(i => i.value = '');
+  document.querySelector('#tiers tbody').appendChild(clone);
+  bindTier(clone);
+});
+function bindTier(row) {
+  row.querySelector('.t-del').addEventListener('click', () => {
+    if (document.querySelectorAll('.t-row').length > 1) row.remove();
+  });
+}
+document.querySelectorAll('.t-row').forEach(bindTier);
+</script>
+{% endblock %}

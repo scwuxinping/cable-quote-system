@@ -1,0 +1,78 @@
+{% extends 'quoter/base.html' %}
+{% block title %}统计报表 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">统计报表（{{ month }}）</h4>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <h6>按业务员（本月报价）</h6>
+      <table class="table table-sm mb-0">
+        <thead><tr><th>业务员</th><th>报价单数</th><th class="text-end">货款金额(元)</th></tr></thead>
+        <tbody>
+          {% for r in by_sales %}
+          <tr><td>{{ r.created_by__username }}</td><td class="mono">{{ r.n }}</td>
+            <td class="text-end mono">{{ r.amount|floatformat:0 }}</td></tr>
+          {% empty %}
+          <tr><td colspan="3" class="text-center text-muted py-3">本月暂无报价</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <h6>按客户（本月已审批 TOP10）</h6>
+      <table class="table table-sm mb-0">
+        <thead><tr><th>客户</th><th>单数</th><th class="text-end">货款金额(元)</th></tr></thead>
+        <tbody>
+          {% for r in by_customer %}
+          <tr><td>{{ r.customer__name }}</td><td class="mono">{{ r.n }}</td>
+            <td class="text-end mono">{{ r.amount|floatformat:0 }}</td></tr>
+          {% empty %}
+          <tr><td colspan="3" class="text-center text-muted py-3">本月暂无审批报价</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+</div>
+
+<div class="card mb-4"><div class="card-body">
+  <h6>热门规格 TOP10（本月成交）</h6>
+  <table class="table table-sm mb-0">
+    <thead><tr><th>型号规格</th><th>成交行数</th><th>总长度(m)</th><th class="text-end">总金额(元)</th></tr></thead>
+    <tbody>
+      {% for r in top_specs %}
+      <tr><td>{{ r.spec_text }}</td><td class="mono">{{ r.n }}</td>
+        <td class="mono">{{ r.length|floatformat:0 }}</td>
+        <td class="text-end mono">{{ r.amount|floatformat:0 }}</td></tr>
+      {% empty %}
+      <tr><td colspan="4" class="text-center text-muted py-3">本月暂无成交明细</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+
+<div class="card"><div class="card-body">
+  <h6>近 6 个月总览</h6>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>月份</th><th>报价</th><th>审批</th><th>转单</th>
+        <th>订单额(元)</th><th>回款(元)</th></tr></thead>
+      <tbody>
+        {% for m in monthly %}
+        <tr>
+          <td class="mono">{{ m.month }}</td>
+          <td class="mono">{{ m.quotes }}</td>
+          <td class="mono">{{ m.approved }}</td>
+          <td class="mono">{{ m.orders }}</td>
+          <td class="mono">{{ m.order_amount|floatformat:0 }}</td>
+          <td class="mono text-success">{{ m.paid_amount|floatformat:0 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div></div>
+{% endblock %}
