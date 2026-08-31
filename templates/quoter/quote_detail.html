@@ -135,6 +135,40 @@
 </div></div>
 {% endif %}
 
+<div class="no-print card mt-3"><div class="card-body">
+  <h6>邮件发送</h6>
+  <form method="post" action="{% url 'quote_send' quote.pk %}" class="row g-2 align-items-end">
+    {% csrf_token %}
+    <div class="col-md-5">
+      <label class="form-label small text-muted">收件邮箱（多个用逗号分隔）</label>
+      <input name="emails" class="form-control" type="text" placeholder="zhangsan@corp.com,lisi@corp.com" required>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small text-muted">备注（可选）</label>
+      <input name="note" class="form-control" placeholder="如：应张工要求重发">
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-primary w-100">发送报价单</button>
+    </div>
+  </form>
+  <div class="form-text">发送内容：HTML 报价单 + Excel 附件，发送后自动留痕。</div>
+  {% if quote.send_logs.all %}
+  <table class="table table-sm small mt-2 mb-0">
+    <thead><tr><th>时间</th><th>收件人</th><th>发送人</th><th>备注</th></tr></thead>
+    <tbody>
+      {% for s in quote.send_logs.all %}
+      <tr>
+        <td class="mono">{{ s.sent_at|date:'m-d H:i' }}</td>
+        <td>{{ s.sent_to }}</td>
+        <td>{{ s.sent_by.username }}</td>
+        <td class="text-muted">{{ s.note }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div></div>
+
 {% if is_manager %}
 <div class="no-print card mt-3"><div class="card-body">
   <h6>成本明细（仅经理可见）</h6>

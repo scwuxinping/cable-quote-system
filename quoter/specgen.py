@@ -41,13 +41,18 @@ def lay_factor(n):
 
 
 def armor_thickness(d):
-    """按成缆外径查钢带铠装等效厚度（两层含搭盖，近似）。"""
+    """按成缆外径查钢带铠装等效厚度（两层含搭盖，近似 GB/T）。
+
+    等效厚度 ≈ 单层标称厚度 × 2 × 1.05 搭盖；规格库逐条可校准。
+    """
     d = float(d)
+    if d < 15:
+        return Decimal('0.4')    # 单层 0.2mm ×2
     if d < 25:
-        return Decimal('0.5')
+        return Decimal('0.5')    # 单层 0.2mm ×2（大外径）
     if d < 40:
-        return Decimal('0.8')
-    return Decimal('1.2')
+        return Decimal('0.8')    # 单层 0.3mm ×2
+    return Decimal('1.2')        # 单层 0.5mm ×2
 
 
 def sheath_thickness(d):

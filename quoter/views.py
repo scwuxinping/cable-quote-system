@@ -11,8 +11,8 @@ from django.views.decorators.http import require_POST
 
 from . import excel
 from .models import (CableSeries, CableSpec, Customer, CustomerTier, Material,
-                     MaterialPrice, Payment, PricingParams, Quotation, QuotationItem,
-                     SalesOrder)
+                     MaterialPrice, Payment, PricingParams, QuoteSendLog,
+                     Quotation, QuotationItem, SalesOrder)
 from .pricing import (MissingPriceError, jsonable, margin_pct,
                       price_spec, resolve_series_layout)
 
@@ -459,6 +459,53 @@ def quote_delete(request, pk):
 def quote_export(request, pk):
     quote = get_object_or_404(Quotation, pk=pk)
     return excel.export_quotation(quote)
+
+
+@login_required
+@require_POST
+def quote_send(request, pk):
+    """把报价单以 HTML 邮件 + Excel 附件发给客户，并留痕。"""
+    import re as _re
+    from django.conf import settings as dj_settings
+    from django.core.mail import EmailMessage
+
+    quote = get_object_or_404(Quotation, pk=pk)
+    emails = [e.strip() for e in request.POST.get('emails', '').split(',')
+              if e.strip()]
+    emails = [e for e in emails if _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', e)]
+    if not emails:
+        messages.error(request, '请填写有效的收件邮箱')
+        return redirect('quote_detail', pk=pk)
+    if not dj_settings.EMAIL_HOST:
+        messages.error(
+            request, '未配置邮件服务：请在启动前设置环境变量 EMAIL_HOST / '
+                     'EMAIL_HOST_USER / EMAIL_HOST_PASSWORD（详见 README 部署章节）')
+        return redirect('quote_detail', pk=pk)
+
+    params = PricingParams.load()
+    body = render(request, 'quoter/mail_quote.html', {
+        'quote': quote, 'items': quote.items.all(), 'params': params,
+    }).content.decode('utf-8')
+    msg = EmailMessage(
+        subject='【%s】报价单 %s' % (params.company_name, quote.number),
+        body=body,
+        from_email=dj_settings.DEFAULT_FROM_EMAIL,
+        to=emails,
+    )
+    msg.content_subtype = 'html'
+    msg.attach('%s.xlsx' % quote.number,
+               excel.export_quotation_bytes(quote),
+               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    try:
+        msg.send()
+    except Exception as exc:
+        messages.error(request, '发送失败：%s' % exc)
+        return redirect('quote_detail', pk=pk)
+    QuoteSendLog.objects.create(
+        quotation=quote, sent_to=', '.join(emails), sent_by=request.user,
+        note=request.POST.get('note', '').strip())
+    messages.success(request, '报价单已发送至 %s' % ', '.join(emails))
+    return redirect('quote_detail', pk=pk)
 
 
 # ---------------------------------------------------------------- 价格维护

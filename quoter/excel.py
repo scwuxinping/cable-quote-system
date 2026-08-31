@@ -1,4 +1,5 @@
 """Excel 导入询价 / 导出报价单 / 下载导入模板。"""
+import io
 from decimal import Decimal, InvalidOperation
 
 from django.http import HttpResponse
@@ -86,7 +87,8 @@ def parse_inquiry(file_obj):
     return items, errors
 
 
-def export_quotation(quotation):
+def export_quotation_bytes(quotation):
+    """生成报价单 Excel 的字节流（邮件附件与下载共用）。"""
     from .models import PricingParams
     p = PricingParams.load()
     wb = Workbook()
@@ -151,8 +153,14 @@ def export_quotation(quotation):
         _cell(ws, r, 1, '地址：%s' % p.company_address, align='left')
         ws.merge_cells('A%d:H%d' % (r, r))
 
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def export_quotation(quotation):
     resp = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     resp['Content-Disposition'] = 'attachment; filename=%s.xlsx' % quotation.number
-    wb.save(resp)
+    resp.write(export_quotation_bytes(quotation))
     return resp

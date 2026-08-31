@@ -19,6 +19,7 @@ urlpatterns = [
     path('quotes/<int:pk>/reject/', views.quote_reject, name='quote_reject'),
     path('quotes/<int:pk>/delete/', views.quote_delete, name='quote_delete'),
     path('quotes/<int:pk>/export/', views.quote_export, name='quote_export'),
+    path('quotes/<int:pk>/send/', views.quote_send, name='quote_send'),
     path('quotes/<int:pk>/to-order/', views.quote_to_order, name='quote_to_order'),
     path('orders/', views.order_list, name='order_list'),
     path('orders/<int:pk>/', views.order_detail, name='order_detail'),

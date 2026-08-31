@@ -444,3 +444,27 @@ class Payment(models.Model):
 
     def __str__(self):
         return '%s %s %s' % (self.order.number, self.date, self.amount)
+
+
+class QuoteSendLog(models.Model):
+    """报价单邮件发送留痕。"""
+
+    quotation = models.ForeignKey(
+        Quotation, on_delete=models.CASCADE, related_name='send_logs',
+        verbose_name='报价单')
+    sent_to = models.CharField('收件人', max_length=200,
+                               help_text='多个邮箱用逗号分隔')
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='quotes_sent', verbose_name='发送人')
+    sent_at = models.DateTimeField('发送时间', auto_now_add=True)
+    note = models.CharField('备注', max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = '报价发送记录'
+        verbose_name_plural = '报价发送记录'
+        ordering = ['-sent_at']
+
+    def __str__(self):
+        return '%s → %s (%s)' % (self.quotation.number, self.sent_to,
+                                 self.sent_at.strftime('%m-%d %H:%M'))

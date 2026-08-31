@@ -432,3 +432,87 @@ class SeriesResolveTests(TestCase):
         self.assertGreater(f19, 6.5)
         self.assertLess(f19, 7.5)
 
+class Phase2Tests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+        from datetime import timedelta
+        cu = _mat('CU', '8.89', '75')
+        xlpe = _mat('XLPE', '0.92', '12.5', loss='3')
+        pvc = _mat('PVC', '1.40', '9.2', loss='3')
+        series, _ = CableSeries.objects.update_or_create(
+            code='YJV', defaults={'name': 't', 'insulation': xlpe, 'has_sheath': True,
+                                  'sheath_material': pvc,
+                                  'insulation_thickness': {'16': '0.7'},
+                                  'core_options': ['4'], 'sections': [16]})
+        spec, _ = CableSpec.objects.update_or_create(
+            series=series, layout='4x16',
+            defaults={'conductor_material': cu, 'cores_total': 4,
+                      'section_total': Decimal('64'), 'conductor_weight': Decimal('580'),
+                      'insulation_weight': Decimal('44'), 'sheath_weight': Decimal('118')})
+        self.spec = spec
+        self.user = User.objects.create_user('pu')
+        self.cust = Customer.objects.create(name='二期客户')
+        self.quote = Quotation.objects.create(
+            number='P2-001', customer=self.cust, created_by=self.user,
+            valid_until=timezone.localdate() + timedelta(days=3),
+            status=Quotation.STATUS_APPROVED, freight=Decimal('200'))
+        QuotationItem.objects.create(
+            quotation=self.quote, spec=spec, spec_text='YJV 4×16',
+            length_m=Decimal('100'), list_price_per_m=Decimal('50'),
+            final_price_per_m=Decimal('50'), amount=Decimal('5000'),
+            cost_detail={'cost_km': '40000', 'tax_mult': '1.13'})
+
+    def test_export_bytes_is_xlsx(self):
+        from quoter.excel import export_quotation_bytes
+        data = export_quotation_bytes(self.quote)
+        self.assertTrue(data.startswith(b'PK'))          # xlsx = zip 魔数
+        self.assertGreater(len(data), 2000)
+
+    def test_quote_send_logs(self):
+        from django.core import mail
+        from django.test import Client, override_settings
+        from quoter.models import QuoteSendLog
+        with override_settings(
+                EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+                EMAIL_HOST='smtp.test', EMAIL_PORT=465):
+            client = Client()
+            client.force_login(self.user)
+            resp = client.post('/quotes/%d/send/' % self.quote.pk,
+                               {'emails': 'a@b.com, c@d.com', 'note': '测试'})
+            self.assertEqual(resp.status_code, 302)
+            self.assertEqual(len(mail.outbox), 1)
+            msg = mail.outbox[0]
+            self.assertIn('a@b.com', msg.to)
+            self.assertEqual(len(msg.attachments), 1)    # Excel 附件
+            log = QuoteSendLog.objects.get(quotation=self.quote)
+            self.assertEqual(log.sent_to, 'a@b.com, c@d.com')
+
+    def test_quote_send_rejects_bad_email(self):
+        from django.test import Client, override_settings
+        with override_settings(EMAIL_HOST='smtp.test'):
+            client = Client()
+            client.force_login(self.user)
+            client.post('/quotes/%d/send/' % self.quote.pk, {'emails': '不是邮箱'})
+            from quoter.models import QuoteSendLog
+            self.assertEqual(QuoteSendLog.objects.count(), 0)
+
+    def test_armor_thickness_tiers(self):
+        from quoter.specgen import armor_thickness
+        self.assertEqual(armor_thickness(10), Decimal('0.4'))
+        self.assertEqual(armor_thickness(20), Decimal('0.5'))
+        self.assertEqual(armor_thickness(30), Decimal('0.8'))
+        self.assertEqual(armor_thickness(50), Decimal('1.2'))
+
+    def test_fetch_cu_lme_conversion(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from quoter.models import MaterialPrice
+        out = StringIO()
+        call_command('fetch_cu_price', '--lme', '10500', '--rate', '7.15',
+                     stdout=out)
+        mp = MaterialPrice.objects.filter(material__code='CU').order_by('-date').first()
+        self.assertEqual(mp.source, MaterialPrice.SOURCE_LME)
+        self.assertEqual(mp.price, Decimal('75.0750'))
+        self.assertEqual(mp.exchange_rate, Decimal('7.15'))
+

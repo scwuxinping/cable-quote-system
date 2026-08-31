@@ -1,8 +1,8 @@
 from django.contrib import admin
 
 from .models import (CableSeries, CableSpec, Customer, CustomerTier, Material,
-                     MaterialPrice, Payment, PricingParams, Quotation, QuotationItem,
-                     SalesOrder)
+                     MaterialPrice, Payment, PricingParams, QuoteSendLog,
+                     Quotation, QuotationItem, SalesOrder)
 
 
 @admin.register(Material)
@@ -92,6 +92,12 @@ class SalesOrderAdmin(admin.ModelAdmin):
     @admin.display(description='已回款')
     def paid_display(self, obj):
         return obj.paid_amount()
+
+
+@admin.register(QuoteSendLog)
+class QuoteSendLogAdmin(admin.ModelAdmin):
+    list_display = ('quotation', 'sent_to', 'sent_by', 'sent_at', 'note')
+    search_fields = ('quotation__number', 'sent_to')
 
 
 @admin.register(Quotation)

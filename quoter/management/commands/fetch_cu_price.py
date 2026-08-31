@@ -81,10 +81,12 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--price', type=str, default=None,
                             help='手工录入/修正价（元/kg），优先于自动抓取')
+        parser.add_argument('--lme', type=str, default=None,
+                            help='LME 结算价（USD/吨），配合 --rate 自动换算为 元/kg 录入')
         parser.add_argument('--premium', type=str, default='0',
                             help='铜价升贴水 元/kg，可为负')
         parser.add_argument('--rate', type=str, default=None,
-                            help='汇率 USD/CNY（LME 来源时留痕用）')
+                            help='汇率 USD/CNY（--lme 必填；--price 时仅留痕）')
         parser.add_argument('--source', default='shfe',
                             choices=['shfe', 'changjiang', 'lme'],
                             help='自动抓取来源（默认 shfe 沪铜连续）')
@@ -97,7 +99,17 @@ class Command(BaseCommand):
         premium = Decimal(options['premium'])
         rate = Decimal(options['rate']) if options['rate'] else None
 
-        if options['price'] is not None:
+        if options['lme'] is not None:
+            if rate is None:
+                raise CommandError('使用 --lme 时必须同时指定 --rate 汇率，'
+                                   '示例：--lme 10500 --rate 7.15')
+            price = (Decimal(options['lme']) * rate / Decimal('1000')).quantize(
+                Decimal('0.0001'))
+            source = MaterialPrice.SOURCE_LME
+            is_auto = False
+            self.stdout.write('LME %s USD/t × 汇率 %s ÷ 1000 = %s 元/kg'
+                              % (options['lme'], rate, price))
+        elif options['price'] is not None:
             price = Decimal(options['price'])
             source = MaterialPrice.SOURCE_MANUAL
             is_auto = False
@@ -109,8 +121,8 @@ class Command(BaseCommand):
             self.stdout.write('已获取 %s（%s）：%s 元/吨' % (name, qdate, price * 1000))
         elif options['source'] == 'lme':
             raise CommandError(
-                'LME 暂无免费稳定接口：请查 LME 结算价 × 汇率 ÷ 1000 换算为 元/kg 后，'
-                '用 --price 录入并带 --rate 留痕')
+                'LME 暂无免费稳定接口：请查 LME 结算价后用 '
+                '--lme <USD/吨> --rate <汇率> 自动换算录入（来源留痕为 LME）')
         else:
             raise CommandError(
                 '长江现货暂无公开稳定接口：请盘中查询后用 --price 手工录入，'

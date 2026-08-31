@@ -60,12 +60,36 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-DATABASES = {
-    'default': {
+def _database_from_env():
+    """默认 SQLite；设 DATABASE_URL=postgres://user:pwd@host:5432/dbname 切换 PostgreSQL。"""
+    url = os.environ.get('DATABASE_URL', '')
+    if url.startswith(('postgres://', 'postgresql://')):
+        from urllib.parse import urlparse
+        p = urlparse(url)
+        return {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': p.path.lstrip('/'),
+            'USER': p.username or '',
+            'PASSWORD': p.password or '',
+            'HOST': p.hostname or '',
+            'PORT': str(p.port or 5432),
+        }
+    return {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
-}
+
+
+DATABASES = {'default': _database_from_env()}
+
+# 邮件发送（报价单邮件留痕功能）。以下环境变量配置后即启用，
+# 例（QQ 企业邮箱）：EMAIL_HOST=smtp.exmail.qq.com EMAIL_HOST_USER=xxx@xx.com EMAIL_HOST_PASSWORD=***
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', '1') == '1'
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER or 'cable-quote@localhost'
 
 AUTH_PASSWORD_VALIDATORS = []
 
