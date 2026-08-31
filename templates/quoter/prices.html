@@ -1,0 +1,52 @@
+{% extends 'quoter/base.html' %}
+{% block title %}价格维护 - 电缆报价系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">价格维护</h4>
+  <div class="text-muted small">价格日期：{{ today }}（每天录一次，全部报价自动联动）</div>
+</div>
+
+<form method="post">
+{% csrf_token %}
+<div class="card"><div class="card-body">
+<div class="table-responsive">
+  <table class="table align-middle">
+    <thead><tr><th>材料</th><th>单位</th><th>损耗率</th>
+      <th style="width:160px">今日基准价</th><th style="width:130px">升贴水</th>
+      <th>今日来源</th><th>最近价格（含升贴水）</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><b>{{ r.mat.code }}</b> {{ r.mat.name }}</td>
+        <td>{{ r.mat.unit }}</td>
+        <td class="mono">{{ r.mat.loss_rate }}%</td>
+        <td>
+          <input class="form-control form-control-sm mono" name="price_{{ r.mat.code }}"
+                 value="{{ r.today }}" placeholder="{{ r.mat.unit }}">
+        </td>
+        <td>
+          <input class="form-control form-control-sm mono" name="premium_{{ r.mat.code }}"
+                 value="{{ r.premium }}" placeholder="0">
+        </td>
+        <td class="small">
+          {% if r.source %}
+            {{ r.source }}{% if r.auto %} <span class="badge text-bg-info">自动</span>{% else %} <span class="badge text-bg-secondary">手工</span>{% endif %}
+            {% if r.saved_at %}<div class="text-muted">{{ r.saved_at|date:'H:i' }} 录入</div>{% endif %}
+          {% else %}<span class="text-muted">今日未录</span>{% endif %}
+        </td>
+        <td class="text-muted mono">{{ r.last }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<button class="btn btn-primary px-4">保存（记为手工录入/修正）</button>
+<div class="form-text mt-2">
+  提示：留空的行不会更新；手工保存会覆盖当天的自动抓取值（来源与时间留痕）。<br>
+  铜价自动获取：<code>py -3.13 manage.py fetch_cu_price</code>（上期所沪铜连续，可加
+  <code>--premium 升贴水</code>；LME/长江现货用 <code>--price</code> 手工换算录入并带 <code>--rate</code> 汇率留痕）。
+  可挂 Windows 任务计划每天自动执行。
+</div>
+</div></div>
+</form>
+{% endblock %}

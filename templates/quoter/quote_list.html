@@ -1,0 +1,48 @@
+{% extends 'quoter/base.html' %}
+{% block title %}报价单列表 - 电缆报价系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">报价单</h4>
+  <a class="btn btn-primary" href="{% url 'quote_new' %}">＋ 新建报价单</a>
+</div>
+
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link {% if not status %}active{% endif %}" href="{% url 'quote_list' %}">全部</a></li>
+  {% for value, label in STATUS_CHOICES %}
+    <li class="nav-item"><a class="nav-link {% if status == value %}active{% endif %}"
+        href="{% url 'quote_list' %}?status={{ value }}">{{ label }}</a></li>
+  {% endfor %}
+</ul>
+
+<div class="card"><div class="card-body">
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead><tr><th>单号</th><th>客户</th><th>业务员</th><th>折扣</th><th>金额(元)</th><th>状态</th><th>有效期至</th><th></th></tr></thead>
+    <tbody>
+      {% for q in quotes %}
+      <tr>
+        <td><a href="{% url 'quote_detail' q.pk %}"><b>{{ q.number }}</b></a></td>
+        <td>{{ q.customer.name }}</td>
+        <td>{{ q.created_by.username }}</td>
+        <td class="mono">{{ q.discount }}</td>
+        <td class="mono">{{ q.total_amount|floatformat:2 }}</td>
+        <td>
+          {% if q.status == 'pending' %}<span class="badge text-bg-warning">待审批</span>
+          {% elif q.status == 'boss_pending' %}<span class="badge text-bg-danger">待老板终审</span>
+          {% elif q.status == 'approved' %}{% if q.is_expired %}<span class="badge text-bg-secondary">已过期</span>{% else %}<span class="badge text-bg-success">已审批</span>{% endif %}
+          {% elif q.status == 'rejected' %}<span class="badge text-bg-danger">已驳回</span>
+          {% else %}<span class="badge text-bg-light text-dark border">草稿</span>{% endif %}
+        </td>
+        <td class="mono">{{ q.valid_until|date:'Y-m-d' }}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-secondary" href="{% url 'quote_export' q.pk %}">Excel</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" class="text-center text-muted py-4">暂无报价单</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+</div></div>
+{% endblock %}

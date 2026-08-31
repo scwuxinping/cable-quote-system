@@ -1,0 +1,134 @@
+{% extends 'quoter/base.html' %}
+{% block title %}工作台 - 电缆报价系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0">工作台</h4>
+  <div>
+    <a class="btn btn-primary me-2" href="{% url 'quote_new' %}">＋ 新建报价单</a>
+    <a class="btn btn-outline-primary" href="{% url 'calc' %}">快速询价</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">今日铜价（报价基准）</div>
+      {% if cu_price %}
+        <div class="price-big">{{ cu_price }} <span class="fs-6 text-muted">元/kg</span></div>
+      {% else %}
+        <div class="text-danger">尚未录入铜价，<a href="{% url 'prices' %}">去维护</a></div>
+      {% endif %}
+      {% if cu_spark %}
+      <svg viewBox="0 0 280 60" preserveAspectRatio="none" height="44" class="w-100 mt-1">
+        <polygon points="{{ cu_spark.area }}" fill="rgba(13,94,175,.12)"/>
+        <polyline points="{{ cu_spark.line }}" fill="none" stroke="#0d5eaf" stroke-width="2"/>
+      </svg>
+      <div class="d-flex justify-content-between small text-muted mono">
+        <span>{{ cu_spark.start_date|date:'m-d' }}</span>
+        <span>{% if cu_spark.change_pct > 0 %}<span class="text-danger">▲ {{ cu_spark.change_pct|floatformat:1 }}%</span>{% elif cu_spark.change_pct < 0 %}<span class="text-success">▼ {{ cu_spark.change_pct|floatformat:1 }}%</span>{% else %}持平{% endif %}</span>
+        <span>{{ cu_spark.end_date|date:'m-d' }}</span>
+      </div>
+      {% endif %}
+      <div class="mt-2 d-flex flex-wrap gap-1">
+        {% for m in materials %}
+          <span class="badge text-bg-light border">{{ m.code }}</span>
+        {% endfor %}
+      </div>
+      <a class="small" href="{% url 'prices' %}">维护今日材料价格 →</a>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">报价统计</div>
+      <div class="d-flex justify-content-between mt-2 fs-5 mono">
+        <div><div class="text-muted small">累计</div>{{ total_quotes }}</div>
+        <div><div class="text-muted small">今日</div>{{ today_quotes }}</div>
+        <div><div class="text-muted small">待审批</div>
+          <span class="{% if pending_count %}text-danger{% endif %}">{{ pending_count }}</span></div>
+      </div>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">当前计价参数</div>
+      <div class="small mt-2 lh-lg">
+        目标毛利率 <b>{{ params.target_margin_pct }}%</b>，
+        最低 <b>{{ params.min_margin_pct }}%</b>（低于需审批）<br>
+        报价{{ params.price_with_tax|yesno:"含税,不含税" }}，
+        税率 {{ params.tax_rate_pct }}%，
+        有效期 {{ params.quote_valid_days }} 天
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card h-100"><div class="card-body">
+      <div class="d-flex justify-content-between">
+        <div class="text-muted small">销售订单</div>
+        <a class="small" href="{% url 'order_list' %}">全部 →</a>
+      </div>
+      <div class="d-flex justify-content-between mt-2 fs-5 mono">
+        <div><div class="text-muted small">在途</div>{{ order_stats.open }}</div>
+        <div><div class="text-muted small">应收未回款</div>
+          <span class="{% if order_stats.receivable > 0 %}text-danger{% endif %}">
+            {{ order_stats.receivable|floatformat:0 }}</span></div>
+      </div>
+    </div></div>
+  </div>
+  <div class="col-md-8">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small mb-1">近 6 个月（报价 → 成交）</div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0 small align-middle">
+          <thead><tr><th>月份</th><th>报价</th><th>审批</th><th>转单</th><th>订单额(元)</th><th>回款(元)</th></tr></thead>
+          <tbody>
+            {% for m in monthly %}
+            <tr>
+              <td class="mono">{{ m.month }}</td>
+              <td class="mono">{{ m.quotes }}</td>
+              <td class="mono">{{ m.approved }}</td>
+              <td class="mono">{{ m.orders }}</td>
+              <td class="mono">{{ m.order_amount|floatformat:0 }}</td>
+              <td class="mono text-success">{{ m.paid_amount|floatformat:0 }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0">最近报价单</h6>
+      <a class="small" href="{% url 'quote_list' %}">全部 →</a>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead><tr><th>单号</th><th>客户</th><th>业务员</th><th>金额(元)</th><th>状态</th><th>创建时间</th></tr></thead>
+        <tbody>
+          {% for q in recent %}
+          <tr>
+            <td><a href="{% url 'quote_detail' q.pk %}">{{ q.number }}</a></td>
+            <td>{{ q.customer.name }}</td>
+            <td>{{ q.created_by.username }}</td>
+            <td class="mono">{{ q.total_amount|floatformat:2 }}</td>
+            <td>
+              {% if q.is_expired and q.status == 'approved' %}<span class="badge text-bg-secondary">已过期</span>
+              {% else %}{{ q.status_label }}{% endif %}
+            </td>
+            <td class="text-muted small">{{ q.created_at|date:'m-d H:i' }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6" class="text-center text-muted py-4">还没有报价单，点右上角“新建报价单”开始</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

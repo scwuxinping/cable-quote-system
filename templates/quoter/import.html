@@ -1,0 +1,83 @@
+{% extends 'quoter/base.html' %}
+{% block title %}Excel 导入询价 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">Excel 导入询价</h4>
+
+<div class="card mb-4"><div class="card-body">
+  <div class="row g-3 align-items-end">
+    <div class="col-md-6">
+      <label class="form-label">上传询价清单（.xlsx）</label>
+      <input type="file" name="file" class="form-control" form="upload-form" required>
+      <div class="form-text">列格式：型号 | 规格 | 长度(m)，例如：YJV | 3x120+1x70 | 500</div>
+    </div>
+    <div class="col-md-3">
+      <form id="upload-form" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <button class="btn btn-primary w-100">解析文件</button>
+      </form>
+    </div>
+    <div class="col-md-3">
+      <a class="btn btn-outline-secondary w-100" href="{% url 'import_template' %}">下载导入模板</a>
+    </div>
+  </div>
+</div></div>
+
+{% if import_items %}
+<div class="card mb-4"><div class="card-body">
+  <h6>解析结果（{{ import_items|length }} 条有效）</h6>
+  <div class="table-responsive" style="max-height:300px;overflow:auto">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>#</th><th>型号规格</th><th>长度(m)</th></tr></thead>
+      <tbody>
+        {% for sid, ln, text in import_items %}
+        <tr><td>{{ forloop.counter }}</td><td>{{ text }}</td><td class="mono">{{ ln }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if import_errors %}
+  <div class="alert alert-warning py-2 small">
+    <b>{{ import_errors|length }} 条未能匹配：</b>
+    <ul class="mb-0">
+      {% for row, text, err in import_errors %}
+      <li>第 {{ row }} 行「{{ text }}」：{{ err }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'import_create' %}">
+    {% csrf_token %}
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small text-muted">客户</label>
+        <select name="customer" class="form-select" required>
+          <option value="">— 选择客户 —</option>
+          {% for c in customers %}
+          <option value="{{ c.pk }}" data-discount="{{ c.discount }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted">折扣</label>
+        <div class="input-group input-group-sm">
+          <input name="discount" value="1.000" class="form-control">
+          <div class="input-group-text">
+            <input class="form-check-input mt-0" type="checkbox" name="auto_tier" value="1" checked title="按阶梯价自动套用">
+          </div>
+        </div>
+        <div class="form-text">勾选=阶梯价</div>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small text-muted">备注</label>
+        <input name="note" class="form-control" placeholder="可选">
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-success w-100">生成报价草稿</button>
+      </div>
+    </div>
+  </form>
+</div></div>
+{% endif %}
+{% endblock %}

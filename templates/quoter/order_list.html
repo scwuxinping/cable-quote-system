@@ -1,0 +1,43 @@
+{% extends 'quoter/base.html' %}
+{% block title %}销售订单 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">销售订单</h4>
+
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link {% if not status %}active{% endif %}" href="{% url 'order_list' %}">全部</a></li>
+  {% for value, label in STATUS_CHOICES %}
+    <li class="nav-item"><a class="nav-link {% if status == value %}active{% endif %}"
+        href="{% url 'order_list' %}?status={{ value }}">{{ label }}</a></li>
+  {% endfor %}
+</ul>
+
+<div class="card"><div class="card-body">
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead><tr><th>订单号</th><th>客户</th><th>来源报价</th><th>金额(元)</th>
+      <th>已回款(元)</th><th>未回款(元)</th><th>状态</th><th>创建</th></tr></thead>
+    <tbody>
+      {% for o in orders %}
+      <tr>
+        <td><a href="{% url 'order_detail' o.pk %}"><b>{{ o.number }}</b></a></td>
+        <td>{{ o.customer.name }}</td>
+        <td class="text-muted"><a href="{% url 'quote_detail' o.quotation.pk %}">{{ o.quotation.number }}</a></td>
+        <td class="mono">{{ o.amount|floatformat:2 }}</td>
+        <td class="mono text-success">{{ o.paid_amount|floatformat:2 }}</td>
+        <td class="mono {% if o.balance > 0 %}text-danger{% endif %}">{{ o.balance|floatformat:2 }}</td>
+        <td>
+          {% if o.status == 'production' %}<span class="badge text-bg-primary">生产中</span>
+          {% elif o.status == 'shipped' %}<span class="badge text-bg-info">已发货</span>
+          {% elif o.status == 'done' %}<span class="badge text-bg-success">已完成</span>
+          {% else %}<span class="badge text-bg-secondary">已取消</span>{% endif %}
+        </td>
+        <td class="text-muted small">{{ o.created_at|date:'m-d' }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" class="text-center text-muted py-4">暂无订单。在已审批的报价单详情页点"转为订单"。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+</div></div>
+{% endblock %}

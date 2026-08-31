@@ -1,0 +1,107 @@
+{% extends 'quoter/base.html' %}
+{% block title %}{{ order.number }} - 电缆报价系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="mb-0">{{ order.number }}
+    {% if order.status == 'production' %}<span class="badge text-bg-primary">生产中</span>
+    {% elif order.status == 'shipped' %}<span class="badge text-bg-info">已发货</span>
+    {% elif order.status == 'done' %}<span class="badge text-bg-success">已完成</span>
+    {% else %}<span class="badge text-bg-secondary">已取消</span>{% endif %}
+  </h4>
+  <div class="d-flex gap-2">
+    {% if can_manage and next_status %}
+    <form method="post" action="{% url 'order_status' order.pk %}" class="d-inline">
+      {% csrf_token %}<input type="hidden" name="action"
+        value="{% if order.status == 'production' %}ship{% else %}done{% endif %}">
+      <button class="btn btn-primary">{{ next_status.1 }}</button>
+    </form>
+    {% endif %}
+    {% if can_manage and order.status != 'done' and order.status != 'cancelled' %}
+    <form method="post" action="{% url 'order_status' order.pk %}" class="d-inline"
+          onsubmit="return confirm('确定取消该订单？')">
+      {% csrf_token %}<input type="hidden" name="action" value="cancel">
+      <button class="btn btn-outline-danger">取消订单</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-outline-secondary" href="{% url 'quote_detail' order.quotation.pk %}">查看报价单</a>
+    <a class="btn btn-outline-secondary" href="{% url 'order_list' %}">返回</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card h-100"><div class="card-body">
+    <div class="text-muted small">订单金额</div>
+    <div class="fs-4 fw-bold mono">{{ order.amount|floatformat:2 }}</div>
+    <div class="small text-muted">{{ order.created_at|date:'Y-m-d' }} · {{ order.created_by.username }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card h-100"><div class="card-body">
+    <div class="text-muted small">已回款</div>
+    <div class="fs-4 fw-bold mono text-success">{{ paid|floatformat:2 }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card h-100"><div class="card-body">
+    <div class="text-muted small">未回款</div>
+    <div class="fs-4 fw-bold mono {% if balance > 0 %}text-danger{% endif %}">{{ balance|floatformat:2 }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card h-100"><div class="card-body">
+    <div class="text-muted small">客户</div>
+    <div class="fw-bold">{{ order.customer.name }}</div>
+    <div class="small text-muted">来源 {{ order.quotation.number }}</div>
+  </div></div></div>
+</div>
+
+<div class="card mb-3"><div class="card-body">
+  <h6>订单明细（来自报价单快照）</h6>
+  <table class="table table-sm align-middle">
+    <thead><tr><th>型号规格</th><th>单价(元/m)</th><th>长度(m)</th><th class="text-end">金额(元)</th></tr></thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.spec_text }}</td>
+        <td class="mono">{{ item.final_price_per_m|floatformat:4 }}</td>
+        <td class="mono">{{ item.length_m }}</td>
+        <td class="text-end mono">{{ item.amount|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+
+<div class="card mb-3"><div class="card-body">
+  <h6>回款记录</h6>
+  <table class="table table-sm align-middle">
+    <thead><tr><th>日期</th><th>金额(元)</th><th>方式</th><th>备注</th></tr></thead>
+    <tbody>
+      {% for p in payments %}
+      <tr>
+        <td class="mono">{{ p.date|date:'Y-m-d' }}</td>
+        <td class="mono text-success">{{ p.amount|floatformat:2 }}</td>
+        <td>{{ p.method|default:'-' }}</td>
+        <td class="text-muted">{{ p.note }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="text-center text-muted py-3">还没有回款记录</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if order.status != 'cancelled' %}
+  <form method="post" action="{% url 'payment_add' order.pk %}" class="row g-2 align-items-end">
+    {% csrf_token %}
+    <div class="col-md-3">
+      <label class="form-label small text-muted">回款金额(元)</label>
+      <input name="amount" class="form-control" required placeholder="如 50000" inputmode="decimal">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small text-muted">方式</label>
+      <input name="method" class="form-control" placeholder="电汇/承兑">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small text-muted">备注</label>
+      <input name="note" class="form-control" placeholder="可选">
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-success w-100">登记回款</button>
+    </div>
+  </form>
+  {% endif %}
+</div></div>
+{% endblock %}

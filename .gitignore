@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Django 本地运行数据（含账号与价格，不入库）
+db.sqlite3
+secret.key
+media/
+backups/
+staticfiles/
+
+# IDE / 系统
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
+# 本地工具状态
+.mimosa/

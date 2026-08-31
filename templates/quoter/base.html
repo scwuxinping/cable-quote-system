@@ -1,0 +1,55 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}电缆报价系统{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'app.css' %}">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark" style="background:#0d5eaf">
+  <div class="container">
+    <a class="navbar-brand" href="{% url 'dashboard' %}">⚡ 电缆报价系统</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link" href="{% url 'dashboard' %}">工作台</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'calc' %}">快速询价</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'quote_list' %}">报价单</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'order_list' %}">销售订单</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'import_quotes' %}">Excel 导入</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'prices' %}">价格维护</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'spec_list' %}">规格库</a></li>
+        {% if user.is_superuser %}
+        <li class="nav-item"><a class="nav-link" href="/admin/">后台管理</a></li>
+        {% endif %}
+      </ul>
+      <span class="navbar-text me-3">{{ user.username }}</span>
+      <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button class="btn btn-outline-light btn-sm">退出</button>
+      </form>
+    </div>
+  </div>
+</nav>
+
+<div class="container py-4">
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+  {% block content %}{% endblock %}
+</div>
+
+<script src="{% static 'vendor/bootstrap.bundle.min.js' %}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

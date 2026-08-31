@@ -1,0 +1,120 @@
+{% extends 'quoter/base.html' %}
+{% block title %}新建报价单 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">新建报价单</h4>
+<form method="post">
+{% csrf_token %}
+<div class="card mb-3"><div class="card-body">
+  <div class="row g-3">
+    <div class="col-md-4">
+      <label class="form-label">客户 *</label>
+      <select name="customer" class="form-select" required>
+        <option value="">— 选择客户 —</option>
+        {% for c in customers %}
+        <option value="{{ c.pk }}" data-discount="{{ c.discount }}">{{ c.name }}（{{ c.get_level_display }}）</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">整单折扣</label>
+      <div class="input-group">
+        <input name="discount" value="{{ default_discount }}" class="form-control" placeholder="0.95 表示 95 折">
+        <div class="input-group-text">
+          <input class="form-check-input mt-0" type="checkbox" name="auto_tier" id="auto-tier" value="1" checked>
+        </div>
+      </div>
+      <div class="form-text">
+        <label class="form-check-label" for="auto-tier">按阶梯价自动套用</label>
+        <div id="tier-hint" class="text-primary"></div>
+      </div>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">运费(元)</label>
+      <input name="freight" value="0" class="form-control" placeholder="0">
+      <div class="form-text">计入合计</div>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">备注</label>
+      <input name="note" class="form-control" placeholder="交期、付款方式等（可选）">
+    </div>
+  </div>
+</div></div>
+
+<div class="card mb-3"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">报价明细</h6>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="add-row">＋ 添加一行</button>
+  </div>
+  <table class="table align-middle" id="items">
+    <thead><tr><th style="width:180px">型号</th><th>规格</th><th style="width:140px">长度(m)</th><th style="width:60px"></th></tr></thead>
+    <tbody>
+      <tr class="item-row">
+        <td>
+          <select class="form-select series-sel" required>
+            <option value="">— 型号 —</option>
+            {% for s in series_list %}<option value="{{ s.pk }}">{{ s.code }}</option>{% endfor %}
+          </select>
+        </td>
+        <td><select class="form-select spec-sel" name="item_spec" required disabled>
+              <option value="">先选型号</option></select></td>
+        <td><input name="item_len" class="form-control" placeholder="如 500" required inputmode="decimal"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger del-row">删</button></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="form-text">明细价格在保存时按当日材料价格快照计算；销售报价 = 成本×(1+利润率) + 运费。</div>
+</div></div>
+
+<div class="d-flex gap-2">
+  <button class="btn btn-primary px-4">保存为草稿</button>
+  <a class="btn btn-outline-secondary" href="{% url 'quote_list' %}">取消</a>
+</div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadSpecs(seriesSel, specSel) {
+  specSel.innerHTML = '<option>加载中…</option>';
+  specSel.disabled = true;
+  const resp = await fetch(`/api/specs/?series=${seriesSel.value}`, {credentials: 'same-origin'});
+  const data = await resp.json();
+  specSel.innerHTML = '<option value="">— 规格 —</option>' +
+    data.specs.map(s => `<option value="${s.id}">${s.display}</option>`).join('');
+  specSel.disabled = false;
+}
+
+document.querySelectorAll('.item-row').forEach(bindRow);
+function bindRow(row) {
+  const seriesSel = row.querySelector('.series-sel');
+  const specSel = row.querySelector('.spec-sel');
+  seriesSel.addEventListener('change', () => loadSpecs(seriesSel, specSel));
+  row.querySelector('.del-row').addEventListener('click', () => {
+    if (document.querySelectorAll('.item-row').length > 1) row.remove();
+  });
+}
+
+document.getElementById('add-row').addEventListener('click', () => {
+  const tpl = document.querySelector('.item-row');
+  const clone = tpl.cloneNode(true);
+  clone.querySelector('.spec-sel').disabled = true;
+  clone.querySelector('.spec-sel').innerHTML = '<option value="">先选型号</option>';
+  document.querySelector('#items tbody').appendChild(clone);
+  bindRow(clone);
+});
+
+// 选择客户自动带出折扣 + 阶梯提示
+document.querySelector('select[name=customer]').addEventListener('change', async function () {
+  const opt = this.selectedOptions[0];
+  const d = opt && opt.dataset.discount;
+  if (d) document.querySelector('input[name=discount]').value = d;
+  const hint = document.getElementById('tier-hint');
+  if (!this.value) { hint.textContent = ''; return; }
+  const resp = await fetch(`/api/tiers/?customer=${this.value}`, {credentials: 'same-origin'});
+  const data = await resp.json();
+  hint.textContent = data.tiers.length
+    ? '阶梯：' + data.tiers.map(t => `${t.min_length_m}m↑ ${t.discount}`).join('，')
+    : '';
+});
+</script>
+{% endblock %}

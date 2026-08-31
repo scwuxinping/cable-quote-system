@@ -1,0 +1,105 @@
+{% extends 'quoter/base.html' %}
+{% block title %}快速询价 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">快速询价</h4>
+
+<div class="card mb-4"><div class="card-body">
+  <form method="post" class="row g-2 align-items-end">
+    {% csrf_token %}
+    <div class="col-md-6">
+      <label class="form-label small text-muted">型号 + 规格（如：YJV 3×120+1×70）</label>
+      <input name="q" value="{{ q }}" class="form-control form-control-lg"
+             placeholder="YJV 3x120+1x70" required autofocus>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small text-muted">长度(m)</label>
+      <input name="length" value="{{ length }}" class="form-control form-control-lg" placeholder="100">
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-primary btn-lg w-100">立即计价</button>
+    </div>
+  </form>
+  <div class="form-text">
+    支持的型号：
+    {% for s in series_list %}<span class="me-2"><b>{{ s.code }}</b>（{{ s.voltage }}）</span>{% endfor %}
+  </div>
+</div></div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if result %}
+{% with bd=result.bd spec=result.spec %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h5>{{ spec.series.code }} {{ spec.display }}
+      <span class="text-muted fs-6 ms-2">{{ spec.series.name }} · {{ spec.voltage }}</span>
+    </h5>
+    <div class="row text-center my-3">
+      <div class="col">
+        <div class="text-muted small">目录单价</div>
+        <div class="price-big">{{ bd.list_per_m|floatformat:4 }}<span class="fs-6 text-muted">元/m</span></div>
+        <div class="small text-muted mono">{{ bd.list_km|floatformat:2 }} 元/km</div>
+      </div>
+      <div class="col border-start">
+        <div class="text-muted small">底价（最低毛利）</div>
+        <div class="fs-4 fw-bold text-danger mono">{{ bd.floor_per_m|floatformat:4 }}</div>
+        <div class="small text-muted mono">{{ bd.floor_km|floatformat:2 }} 元/km</div>
+      </div>
+      <div class="col border-start">
+        <div class="text-muted small">{{ result.length }}m 目录总价</div>
+        <div class="fs-4 fw-bold mono">{{ result.total_list|floatformat:2 }}<span class="fs-6 text-muted">元</span></div>
+        <div class="small text-muted mono">底价总价 {{ result.total_floor|floatformat:2 }} 元</div>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead><tr><th>成本构成（每 km）</th><th>用量 kg/km</th><th>单价 元/kg</th><th>损耗率</th><th class="text-end">小计 元</th></tr></thead>
+        <tbody>
+          {% for p in bd.parts %}
+          <tr>
+            <td>{{ p.label }}（{{ p.material }}）</td>
+            <td class="mono">{{ p.weight|floatformat:2 }}</td>
+            <td class="mono">{{ p.price|floatformat:4 }}</td>
+            <td class="mono">{{ p.loss_pct }}%</td>
+            <td class="text-end mono">{{ p.cost|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+          <tr class="table-light"><td colspan="4">材料成本小计（铜材/绝缘/护套/铠装/填充）</td><td class="text-end mono">{{ bd.material_cost_km|floatformat:2 }}</td></tr>
+          <tr class="table-light"><td colspan="4">加工费（基础 + 截面系数）</td><td class="text-end mono">{{ bd.process_fee_km|floatformat:2 }}</td></tr>
+          <tr class="table-light"><td colspan="4">人工及制造费用（材料成本 %）</td><td class="text-end mono">{{ bd.overhead_fee_km|floatformat:2 }}</td></tr>
+          <tr class="table-secondary fw-bold"><td colspan="4">电缆成本合计（不含税）</td><td class="text-end mono">{{ bd.cost_km|floatformat:2 }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="small text-muted">
+      价格日期 {{ bd.date }}；{{ bd.tax_included|yesno:"目录价/底价已含税,目录价/底价不含税" }}。
+      理论重量为按国标近似计算，可在规格库中按厂标校准。
+    </div>
+  </div>
+</div>
+
+{% if result.deals %}
+<div class="card mb-4"><div class="card-body">
+  <h6>该规格最近成交参考</h6>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>日期</th><th>客户</th><th>报价单</th><th class="text-end">成交单价 元/m</th></tr></thead>
+      <tbody>
+        {% for d in result.deals %}
+        <tr>
+          <td class="mono">{{ d.date|date:'Y-m-d' }}</td>
+          <td>{{ d.customer }}</td>
+          <td class="text-muted mono">{{ d.number }}</td>
+          <td class="text-end mono">{{ d.price|floatformat:4 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div></div>
+{% endif %}
+{% endwith %}
+{% endif %}
+{% endblock %}

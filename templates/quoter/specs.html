@@ -1,0 +1,50 @@
+{% extends 'quoter/base.html' %}
+{% block title %}规格库 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">规格库</h4>
+
+<form method="get" class="row g-2 mb-3">
+  <div class="col-auto">
+    <select name="series" class="form-select">
+      <option value="">全部型号</option>
+      {% for s in series_list %}
+      <option value="{{ s.pk }}" {% if s.pk|stringformat:"s" == series_id %}selected{% endif %}>{{ s.code }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <input name="q" value="{{ q }}" class="form-control" placeholder="搜规格，如 3x120">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-primary">筛选</button>
+  </div>
+</form>
+
+<div class="card"><div class="card-body">
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead><tr><th>型号规格</th><th>电压</th><th>芯数</th><th>截面合计 mm²</th>
+      <th>导体 kg/km</th><th>绝缘 kg/km</th><th>护套 kg/km</th><th>填充 kg/km</th><th></th></tr></thead>
+    <tbody>
+      {% for s in specs %}
+      <tr>
+        <td><b>{{ s.series.code }}</b> {{ s.display }}</td>
+        <td>{{ s.voltage }}</td>
+        <td class="mono">{{ s.cores_total }}</td>
+        <td class="mono">{{ s.section_total }}</td>
+        <td class="mono">{{ s.conductor_weight|floatformat:1 }}</td>
+        <td class="mono">{{ s.insulation_weight|floatformat:1 }}</td>
+        <td class="mono">{{ s.sheath_weight|floatformat:1 }}</td>
+        <td class="mono">{{ s.filler_weight|floatformat:1 }}</td>
+        <td><a class="btn btn-sm btn-outline-primary"
+               href="{% url 'calc' %}?q={{ s.series.code }}+{{ s.layout }}&length=100">计价</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9" class="text-center text-muted py-4">没有匹配的规格（最多显示 100 条）</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="form-text">理论重量按国标近似模型计算，如与厂标有差异，可由管理员在后台管理 → 规格库 中逐条修改。</div>
+</div></div>
+{% endblock %}

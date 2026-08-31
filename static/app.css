@@ -1,0 +1,20 @@
+/* 电缆报价系统 - 自定义样式 */
+:root { --brand: #0d5eaf; }
+body { background: #f5f7fa; }
+.navbar-brand { font-weight: 700; letter-spacing: 1px; }
+.card { border: none; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.table thead th { background: #eef3f9; }
+.price-big { font-size: 2rem; font-weight: 700; color: var(--brand); }
+.mono { font-variant-numeric: tabular-nums; }
+
+/* 打印报价单 */
+@media print {
+  .no-print, nav, .alert, footer { display: none !important; }
+  body { background: #fff; }
+  .container { max-width: 100%; }
+  .card { box-shadow: none; border: 1px solid #333; }
+  .print-header { text-align: center; }
+  .print-header h2 { margin: .2rem 0; letter-spacing: 6px; }
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+}

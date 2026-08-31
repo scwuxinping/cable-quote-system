@@ -1,0 +1,165 @@
+{% extends 'quoter/base.html' %}
+{% load static %}
+{% block title %}{{ quote.number }} - 电缆报价系统{% endblock %}
+{% block content %}
+
+<div class="no-print d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="mb-0">{{ quote.number }}
+    {% if quote.status == 'pending' %}<span class="badge text-bg-warning">待审批</span>
+    {% elif quote.status == 'boss_pending' %}<span class="badge text-bg-danger">待老板终审</span>
+    {% elif quote.status == 'approved' %}{% if quote.is_expired %}<span class="badge text-bg-secondary">已过期</span>{% else %}<span class="badge text-bg-success">已审批</span>{% endif %}
+    {% elif quote.status == 'rejected' %}<span class="badge text-bg-danger">已驳回</span>
+    {% else %}<span class="badge text-bg-light text-dark border">草稿</span>{% endif %}
+  </h4>
+  <div class="d-flex gap-2">
+    {% if can_submit %}
+    <form method="post" action="{% url 'quote_submit' quote.pk %}" class="d-inline"
+          onsubmit="return confirm('提交后价格快照不再变动，确认提交？')">
+      {% csrf_token %}<button class="btn btn-primary">提交</button>
+    </form>
+    {% endif %}
+    {% if can_approve %}
+    <form method="post" action="{% url 'quote_approve' quote.pk %}" class="d-inline">
+      {% csrf_token %}<button class="btn btn-success">{{ approve_label }}</button>
+    </form>
+    {% endif %}
+    {% if can_reject %}
+    <form method="post" action="{% url 'quote_reject' quote.pk %}" class="d-inline">
+      {% csrf_token %}<button class="btn btn-outline-danger">驳回</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-outline-secondary" href="{% url 'quote_export' quote.pk %}">导出 Excel</a>
+    <button class="btn btn-outline-primary" onclick="window.print()">打印 / 存 PDF</button>
+    {% if quote.status == 'approved' %}
+      {% if quote.order %}
+      <a class="btn btn-success" href="{% url 'order_detail' quote.order.pk %}">查看订单 {{ quote.order.number }}</a>
+      {% else %}
+      <form method="post" action="{% url 'quote_to_order' quote.pk %}" class="d-inline"
+            onsubmit="return confirm('按当前报价金额生成销售订单？')">
+        {% csrf_token %}<button class="btn btn-success">转为订单</button>
+      </form>
+      {% endif %}
+    {% endif %}
+    {% if quote.status == 'draft' and quote.created_by_id == user.id or quote.status == 'draft' and is_manager %}
+    <form method="post" action="{% url 'quote_delete' quote.pk %}" class="d-inline"
+          onsubmit="return confirm('确定删除该草稿？')">
+      {% csrf_token %}<button class="btn btn-outline-danger">删除</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-outline-secondary" href="{% url 'quote_list' %}">返回</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-4">
+    <div class="print-header mb-3">
+      <h5 class="mb-1">{{ params.company_name }}</h5>
+      <h2 class="mb-1">产品报价单</h2>
+      <div class="small text-muted">{{ quote.number }}</div>
+    </div>
+
+    <div class="row small mb-3">
+      <div class="col"><b>客户：</b>{{ quote.customer.name }}</div>
+      <div class="col"><b>业务员：</b>{{ quote.created_by.username }}</div>
+      <div class="col"><b>日期：</b>{{ quote.created_at|date:'Y-m-d' }}</div>
+      <div class="col"><b>有效期至：</b>{{ quote.valid_until|date:'Y-m-d' }}</div>
+    </div>
+    <div class="row small mb-3">
+      <div class="col"><b>铜价基准：</b>{{ quote.base_cu_price }} 元/kg
+        {% if quote.cu_price_source %}<span class="text-muted">（{{ quote.cu_price_source }}{% if quote.cu_price_time %} · {{ quote.cu_price_time|date:'m-d H:i' }}{% endif %}）</span>{% endif %}
+      </div>
+      <div class="col"><b>报价口径：</b>{% if params.price_with_tax %}含 {{ params.tax_rate_pct }}% 增值税{% else %}不含税{% endif %}</div>
+      <div class="col"><b>整单折扣：</b>{{ quote.discount }}</div>
+      <div class="col"><b>实际毛利率：</b>
+        {% if margin is None %}-{% else %}{{ margin|floatformat:2 }}%{% endif %}
+      </div>
+    </div>
+
+    <table class="table table-bordered align-middle">
+      <thead><tr>
+        <th>序号</th><th>型号规格</th><th>电压</th><th>单位</th>
+        <th>单价(元/m)</th><th>长度(m)</th><th class="text-end">金额(元)</th>
+      </tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td class="text-center">{{ forloop.counter }}</td>
+          <td>{{ item.spec_text }}</td>
+          <td class="text-center">{{ item.spec.voltage }}</td>
+          <td class="text-center">米</td>
+          <td class="mono">{{ item.final_price_per_m|floatformat:4 }}</td>
+          <td class="mono">{{ item.length_m }}</td>
+          <td class="text-end mono">{{ item.amount|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+        <tr>
+          <td colspan="6" class="text-end">货款小计</td>
+          <td class="text-end mono">{{ goods_total|floatformat:2 }}</td>
+        </tr>
+        <tr class="table-light">
+          <td colspan="6" class="text-end">运费</td>
+          <td class="text-end mono">{{ quote.freight|floatformat:2 }}</td>
+        </tr>
+        <tr class="table-light fw-bold">
+          <td colspan="6" class="text-end">合计（{% if params.price_with_tax %}含 {{ params.tax_rate_pct }}% 税{% else %}不含税{% endif %}）</td>
+          <td class="text-end mono">{{ quote.total_amount|floatformat:2 }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    {% if quote.note %}<div class="small"><b>备注：</b>{{ quote.note }}</div>{% endif %}
+    <div class="small text-muted mt-2">{{ params.quote_note|default:'以上报价基于当日铜价，有效期后请重新询价。' }}</div>
+  </div>
+</div>
+
+{% if deals %}
+<div class="no-print card mt-3"><div class="card-body">
+  <h6>最近成交参考（不打印）</h6>
+  {% for d in deals %}
+  <div class="mb-2">
+    <div class="small fw-bold">{{ d.spec_text }}</div>
+    <table class="table table-sm mb-0 small">
+      <tbody>
+        {% for r in d.rows %}
+        <tr>
+          <td class="mono" style="width:110px">{{ r.date|date:'Y-m-d' }}</td>
+          <td>{{ r.customer }}</td>
+          <td class="text-muted mono">{{ r.number }}</td>
+          <td class="text-end mono" style="width:150px">{{ r.price|floatformat:4 }} 元/m</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div></div>
+{% endif %}
+
+{% if is_manager %}
+<div class="no-print card mt-3"><div class="card-body">
+  <h6>成本明细（仅经理可见）</h6>
+  <div class="table-responsive">
+  <table class="table table-sm align-middle small">
+    <thead><tr><th>规格</th><th>材料成本 元/km</th><th>加工费 元/km</th><th>人工制造 元/km</th><th>成本 元/km</th>
+      <th>底价 元/km</th><th>目录价 元/km</th><th>成交价 元/m</th></tr></thead>
+    <tbody>
+      {% for item in items %}
+      {% with d=item.cost_detail %}
+      <tr>
+        <td>{{ item.spec_text }}</td>
+        <td class="mono">{{ d.material_cost_km|floatformat:2 }}</td>
+        <td class="mono">{{ d.process_fee_km|floatformat:2 }}</td>
+        <td class="mono">{{ d.overhead_fee_km|floatformat:2 }}</td>
+        <td class="mono">{{ d.cost_km|floatformat:2 }}</td>
+        <td class="mono">{{ d.floor_km|floatformat:2 }}</td>
+        <td class="mono">{{ d.list_km|floatformat:2 }}</td>
+        <td class="mono">{{ item.final_price_per_m|floatformat:4 }}</td>
+      </tr>
+      {% endwith %}
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div></div>
+{% endif %}
+{% endblock %}
