@@ -95,7 +95,3 @@ start.bat    :: 日常：启动服务
 - 首次登录后立刻改掉演示账号密码
 - `DEBUG=True` 仅供内网；如需公网访问务必改为 False 并配置 ALLOWED_HOSTS
 - `secret.key`、`db.sqlite3` 为本地运行数据，请随备份保留，勿提交代码仓库
-
-## 相关链接
-
-- [VSLLM](https://vsllm.com)
