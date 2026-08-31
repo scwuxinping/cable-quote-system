@@ -1,5 +1,7 @@
 # 电缆厂销售报价系统
 
+[![CI](https://github.com/scwuxinping/cable-quote-system/actions/workflows/ci.yml/badge.svg)](https://github.com/scwuxinping/cable-quote-system/actions/workflows/ci.yml)
+
 面向电缆厂/经销商销售场景的完整业务系统：**型号规格库 + 材料成本计价引擎 + 铜价联动（自动获取/手工修正）+ 报价/审批/订单/回款全流程 + Excel 导入导出**。
 
 Django + SQLite，单机即可运行，厂内网业务员用浏览器访问，无需安装任何客户端。
