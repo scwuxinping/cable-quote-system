@@ -695,7 +695,7 @@ class Phase4Tests(TestCase):
             created_by=self.user, amount=self.quote.total_amount())
         rows = excel.order_erp_rows(order)
         self.assertEqual(rows[0][1], 'SO-P4')
-        self.assertIn('订单状态:生产中', rows[0][11])
+        self.assertIn('订单状态:生产中', rows[0][12])
 
     def test_armor_table_override(self):
         from quoter.specgen import armor_thickness
@@ -923,4 +923,104 @@ class Phase6Tests(TestCase):
         resp = c.post('/specs/add/', {'series': self.series.pk,
                                       'layout': '4x300'}, follow=True)
         self.assertIn('无法计算', resp.content.decode())
+
+class Phase7Tests(TestCase):
+    """七期：外贸多币种报价。"""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+        from datetime import timedelta
+        cu = _mat('CU', '8.89', '75')
+        xlpe = _mat('XLPE', '0.92', '12.5', loss='3')
+        pvc = _mat('PVC', '1.40', '9.2', loss='3')
+        series, _ = CableSeries.objects.update_or_create(
+            code='YJV', defaults={'name': 't', 'insulation': xlpe, 'has_sheath': True,
+                                  'sheath_material': pvc,
+                                  'insulation_thickness': {'16': '0.7'},
+                                  'core_options': ['4'], 'sections': [16]})
+        self.series = series
+        self.spec, _ = CableSpec.objects.update_or_create(
+            series=series, layout='4x16',
+            defaults={'conductor_material': cu, 'cores_total': 4,
+                      'section_total': Decimal('64'), 'conductor_weight': Decimal('580'),
+                      'insulation_weight': Decimal('44'), 'sheath_weight': Decimal('118')})
+        self.sales = User.objects.create_user('fx_sales')
+        self.cust = Customer.objects.create(name='外贸客户')
+
+    def _create_usd_quote(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.sales)
+        resp = c.post('/quotes/new/', {
+            'customer': self.cust.pk, 'discount': '1.000',
+            'currency': 'USD', 'exchange_rate': '7.2000',
+            'freight': '0', 'item_spec': [self.spec.pk], 'item_len': ['1000']})
+        self.assertEqual(resp.status_code, 302)
+        return Quotation.objects.order_by('-id').first()
+
+    def test_usd_price_conversion(self):
+        from quoter.pricing import price_spec
+        q = self._create_usd_quote()
+        self.assertEqual(q.currency, 'USD')
+        self.assertEqual(q.exchange_rate, Decimal('7.2000'))
+        bd = price_spec(self.spec)
+        item = q.items.first()
+        # 目录价(美元) = 人民币目录价 / 汇率
+        expect = bd['list_per_m'] / Decimal('7.2')
+        self.assertAlmostEqual(float(item.list_price_per_m), float(expect),
+                               delta=0.001)
+
+    def test_usd_margin_in_cny(self):
+        q = self._create_usd_quote()
+        # 以目录价/汇率报价 × 7.2 折人民币 → 毛利应回到目标 20%
+        m = q.margin_pct()
+        self.assertIsNotNone(m)
+        self.assertAlmostEqual(m, 20.0, delta=1.0)
+
+    def test_usd_order_carries_currency(self):
+        from django.test import Client
+        q = self._create_usd_quote()
+        q.status = Quotation.STATUS_APPROVED
+        q.save()
+        c = Client()
+        c.force_login(self.sales)
+        c.post('/quotes/%d/to-order/' % q.pk)
+        order = SalesOrder.objects.get(quotation=q)
+        self.assertEqual(order.currency, 'USD')
+        self.assertEqual(order.exchange_rate, Decimal('7.2000'))
+        self.assertEqual(order.currency_symbol, '$')
+
+    def test_boss_threshold_in_cny(self):
+        """USD 80000 × 7.5 = 60 万人民币，达到 50 万阈值 → 待审批（终审）。"""
+        from datetime import timedelta
+        from django.test import Client
+        p = PricingParams.load()
+        p.boss_threshold_amount = Decimal('500000')
+        p.save()
+        q = Quotation.objects.create(
+            number='FX-BIG', customer=self.cust, created_by=self.sales,
+            valid_until=timezone.localdate() + timedelta(days=3),
+            currency='USD', exchange_rate=Decimal('7.5'))
+        QuotationItem.objects.create(
+            quotation=q, spec=self.spec, spec_text='YJV 4×16',
+            length_m=Decimal('1000'), list_price_per_m=Decimal('80'),
+            final_price_per_m=Decimal('80'), amount=Decimal('80000'),
+            cost_detail={'cost_km': '10000', 'tax_mult': '1.13'})
+        c = Client()
+        c.force_login(self.sales)
+        c.post('/quotes/%d/submit/' % q.pk)
+        q.refresh_from_db()
+        self.assertEqual(q.status, Quotation.STATUS_PENDING)
+        self.assertEqual(q.total_amount_cny(), Decimal('600000'))
+
+    def test_erp_csv_includes_currency(self):
+        from django.test import Client
+        q = self._create_usd_quote()
+        c = Client()
+        c.force_login(self.sales)
+        resp = c.get('/quotes/%d/export/?erp=1' % q.pk)
+        data = resp.content.decode('utf-8-sig')
+        self.assertIn('币种', data)
+        self.assertIn('USD', data)
 

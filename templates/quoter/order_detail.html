@@ -32,16 +32,16 @@
 <div class="row g-3 mb-3">
   <div class="col-md-3"><div class="card h-100"><div class="card-body">
     <div class="text-muted small">订单金额</div>
-    <div class="fs-4 fw-bold mono">{{ order.amount|floatformat:2 }}</div>
+    <div class="fs-4 fw-bold mono">{{ order.currency_symbol }}{{ order.amount|floatformat:2 }}</div>
     <div class="small text-muted">{{ order.created_at|date:'Y-m-d' }} · {{ order.created_by.username }}</div>
   </div></div></div>
   <div class="col-md-3"><div class="card h-100"><div class="card-body">
     <div class="text-muted small">已回款</div>
-    <div class="fs-4 fw-bold mono text-success">{{ paid|floatformat:2 }}</div>
+    <div class="fs-4 fw-bold mono text-success">{{ order.currency_symbol }}{{ paid|floatformat:2 }}</div>
   </div></div></div>
   <div class="col-md-3"><div class="card h-100"><div class="card-body">
     <div class="text-muted small">未回款</div>
-    <div class="fs-4 fw-bold mono {% if balance > 0 %}text-danger{% endif %}">{{ balance|floatformat:2 }}</div>
+    <div class="fs-4 fw-bold mono {% if balance > 0 %}text-danger{% endif %}">{{ order.currency_symbol }}{{ balance|floatformat:2 }}</div>
   </div></div></div>
   <div class="col-md-3"><div class="card h-100"><div class="card-body">
     <div class="text-muted small">客户</div>
@@ -53,7 +53,7 @@
 <div class="card mb-3"><div class="card-body">
   <h6>订单明细（来自报价单快照）</h6>
   <table class="table table-sm align-middle">
-    <thead><tr><th>型号规格</th><th>单价(元/m)</th><th>长度(m)</th><th class="text-end">金额(元)</th></tr></thead>
+    <thead><tr><th>型号规格</th><th>单价({{ order.currency }}/m)</th><th>长度(m)</th><th class="text-end">金额({{ order.currency }})</th></tr></thead>
     <tbody>
       {% for item in items %}
       <tr>

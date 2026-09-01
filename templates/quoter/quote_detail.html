@@ -80,7 +80,9 @@
         {% if quote.cu_price_source %}<span class="text-muted">（{{ quote.cu_price_source }}{% if quote.cu_price_time %} · {{ quote.cu_price_time|date:'m-d H:i' }}{% endif %}）</span>{% endif %}
       </div>
       <div class="col"><b>报价口径：</b>{% if params.price_with_tax %}含 {{ params.tax_rate_pct }}% 增值税{% else %}不含税{% endif %}</div>
-      <div class="col"><b>整单折扣：</b>{{ quote.discount }}</div>
+      <div class="col"><b>整单折扣：</b>{{ quote.discount }}
+        {% if quote.currency != 'CNY' %}<br><b>币种：</b>{{ quote.get_currency_display }} @ {{ quote.exchange_rate }}{% endif %}
+      </div>
       <div class="col">
         {% if quote.signed_at %}<span class="badge text-bg-success">客户已签收：{{ quote.signed_by }} {{ quote.signed_at|date:'m-d H:i' }}</span>
         {% else %}<b>实际毛利率：</b>{% if margin is None %}-{% else %}{{ margin|floatformat:2 }}%{% endif %}{% endif %}
@@ -90,7 +92,7 @@
     <table class="table table-bordered align-middle">
       <thead><tr>
         <th>序号</th><th>型号规格</th><th>电压</th><th>单位</th>
-        <th>单价(元/m)</th><th>长度(m)</th><th class="text-end">金额(元)</th>
+        <th>单价({{ quote.currency }}{{ quote.currency_symbol }}/m)</th><th>长度(m)</th><th class="text-end">金额({{ quote.currency }})</th>
       </tr></thead>
       <tbody>
         {% for item in items %}
@@ -106,15 +108,15 @@
         {% endfor %}
         <tr>
           <td colspan="6" class="text-end">货款小计</td>
-          <td class="text-end mono">{{ goods_total|floatformat:2 }}</td>
+          <td class="text-end mono">{{ goods_total|floatformat:2 }} {{ quote.currency_symbol }}</td>
         </tr>
         <tr class="table-light">
           <td colspan="6" class="text-end">运费</td>
-          <td class="text-end mono">{{ quote.freight|floatformat:2 }}</td>
+          <td class="text-end mono">{{ quote.freight|floatformat:2 }} {{ quote.currency_symbol }}</td>
         </tr>
         <tr class="table-light fw-bold">
           <td colspan="6" class="text-end">合计（{% if params.price_with_tax %}含 {{ params.tax_rate_pct }}% 税{% else %}不含税{% endif %}）</td>
-          <td class="text-end mono">{{ quote.total_amount|floatformat:2 }}</td>
+          <td class="text-end mono">{{ quote.total_amount|floatformat:2 }} {{ quote.currency_symbol }}</td>
         </tr>
       </tbody>
     </table>

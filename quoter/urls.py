@@ -46,4 +46,5 @@ urlpatterns = [
     path('import/template/', views.import_template, name='import_template'),
     path('api/specs/', views.api_specs, name='api_specs'),
     path('api/tiers/', views.api_tiers, name='api_tiers'),
+    path('api/rate/', views.api_rate, name='api_rate'),
 ]

@@ -14,8 +14,8 @@
       <div class="col"><b>有效期至：</b>{{ quote.valid_until|date:'Y-m-d' }}</div>
     </div>
     <table class="table table-bordered align-middle">
-      <thead><tr><th>序号</th><th>型号规格</th><th>单价(元/m)</th><th>长度(m)</th>
-        <th class="text-end">金额(元)</th></tr></thead>
+      <thead><tr><th>序号</th><th>型号规格</th><th>单价({{ quote.currency }}/m)</th><th>长度(m)</th>
+        <th class="text-end">金额({{ quote.currency }})</th></tr></thead>
       <tbody>
         {% for item in items %}
         <tr>
@@ -27,8 +27,8 @@
         </tr>
         {% endfor %}
         <tr class="table-light fw-bold">
-          <td colspan="4" class="text-end">合计（{% if params.price_with_tax %}含 {{ params.tax_rate_pct }}% 税{% else %}不含税{% endif %}，含运费 {{ quote.freight|floatformat:2 }} 元）</td>
-          <td class="text-end mono">{{ quote.total_amount|floatformat:2 }}</td>
+          <td colspan="4" class="text-end">合计（{% if params.price_with_tax %}含 {{ params.tax_rate_pct }}% 税{% else %}不含税{% endif %}，含运费 {{ quote.freight|floatformat:2 }} {{ quote.currency_symbol }}）</td>
+          <td class="text-end mono">{{ quote.total_amount|floatformat:2 }} {{ quote.currency_symbol }}</td>
         </tr>
       </tbody>
     </table>

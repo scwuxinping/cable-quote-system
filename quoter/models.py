@@ -330,6 +330,15 @@ class Quotation(models.Model):
     signed_at = models.DateTimeField('客户签收时间', null=True, blank=True)
     signed_by = models.CharField('签收人', max_length=50, blank=True, default='')
 
+    # 外贸多币种：金额按报价币种存储，成本/毛利/审批阈值统一折算人民币
+    CURRENCY_CHOICES = [('CNY', '人民币'), ('USD', '美元'), ('EUR', '欧元')]
+    CURRENCY_SYMBOLS = {'CNY': '¥', 'USD': '$', 'EUR': '€'}
+    currency = models.CharField(
+        '币种', max_length=3, choices=CURRENCY_CHOICES, default='CNY')
+    exchange_rate = models.DecimalField(
+        '汇率', max_digits=10, decimal_places=4, default=Decimal('1.0000'),
+        help_text='报价币种对人民币汇率（1 外币 = N 人民币），人民币报价填 1')
+
     class Meta:
         verbose_name = '报价单'
         verbose_name_plural = '报价单'
@@ -337,6 +346,10 @@ class Quotation(models.Model):
 
     def __str__(self):
         return self.number
+
+    @property
+    def currency_symbol(self):
+        return self.CURRENCY_SYMBOLS.get(self.currency, '')
 
     @property
     def status_label(self):
@@ -347,19 +360,25 @@ class Quotation(models.Model):
         return self.valid_until < timezone.localdate()
 
     def total_amount(self):
-        """价税合计 = 货款小计 + 运费。"""
+        """价税合计 = 货款小计 + 运费（报价币种）。"""
         return sum((item.amount for item in self.items.all()),
                    Decimal('0')) + (self.freight or Decimal('0'))
 
+    def total_amount_cny(self):
+        """合计折算人民币（毛利核算与审批阈值统一口径）。"""
+        return self.total_amount() * (self.exchange_rate or Decimal('1'))
+
     def margin_pct(self):
-        """整单实际毛利率（含税口径先还原为不含税再计算）。"""
+        """整单实际毛利率（收入按汇率折算为人民币后与人民币成本比较）。"""
         cost = Decimal('0')
         revenue_ex_tax = Decimal('0')
+        rate = self.exchange_rate or Decimal('1')
         for item in self.items.all():
             snap = item.cost_detail or {}
             cost += Decimal(str(snap.get('cost_km', 0))) * item.length_m / Decimal('1000')
             tax_mult = Decimal(str(snap.get('tax_mult', '1')))
-            revenue_ex_tax += item.final_price_per_m * item.length_m / tax_mult
+            revenue_ex_tax += (item.final_price_per_m * item.length_m
+                               * rate / tax_mult)
         if self.items.count() == 0 or revenue_ex_tax == 0:
             return None
         return float((revenue_ex_tax / cost - 1) * 100)
@@ -415,7 +434,11 @@ class SalesOrder(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name='orders_created', verbose_name='创建人')
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
-    amount = models.DecimalField('订单金额 元', max_digits=14, decimal_places=2)
+    amount = models.DecimalField('订单金额', max_digits=14, decimal_places=2)
+    currency = models.CharField(
+        '币种', max_length=3, choices=Quotation.CURRENCY_CHOICES, default='CNY')
+    exchange_rate = models.DecimalField(
+        '汇率', max_digits=10, decimal_places=4, default=Decimal('1'))
     status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES,
                               default=STATUS_PRODUCTION)
     note = models.TextField('备注', blank=True)
@@ -427,6 +450,10 @@ class SalesOrder(models.Model):
 
     def __str__(self):
         return self.number
+
+    @property
+    def currency_symbol(self):
+        return Quotation.CURRENCY_SYMBOLS.get(self.currency, '')
 
     @property
     def status_label(self):

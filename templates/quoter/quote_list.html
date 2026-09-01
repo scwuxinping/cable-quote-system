@@ -17,7 +17,7 @@
 <div class="card"><div class="card-body">
 <div class="table-responsive">
   <table class="table table-hover align-middle">
-    <thead><tr><th>单号</th><th>客户</th><th>业务员</th><th>折扣</th><th>金额(元)</th><th>状态</th><th>有效期至</th><th></th></tr></thead>
+    <thead><tr><th>单号</th><th>客户</th><th>业务员</th><th>折扣</th><th>金额</th><th>状态</th><th>有效期至</th><th></th></tr></thead>
     <tbody>
       {% for q in quotes %}
       <tr>
@@ -25,7 +25,7 @@
         <td>{{ q.customer.name }}</td>
         <td>{{ q.created_by.username }}</td>
         <td class="mono">{{ q.discount }}</td>
-        <td class="mono">{{ q.total_amount|floatformat:2 }}</td>
+        <td class="mono">{{ q.currency_symbol }}{{ q.total_amount|floatformat:2 }}</td>
         <td>
           {% if q.status == 'pending' %}<span class="badge text-bg-warning">待审批</span>
           {% elif q.status == 'boss_pending' %}<span class="badge text-bg-danger">待老板终审</span>

@@ -231,6 +231,27 @@ def api_tiers(request):
          'note': t.note} for t in customer.tiers.all().order_by('min_length_m')]})
 
 
+@login_required
+def api_rate(request):
+    """参考汇率：取最近一次带汇率留痕的铜价记录（USD→CNY）。"""
+    currency = request.GET.get('currency', 'USD')
+    if currency == 'CNY':
+        return JsonResponse({'rate': '1'})
+    if currency != 'USD':
+        return JsonResponse({'rate': None,
+                             'hint': '暂无 %s 参考汇率，请手工填写' % currency})
+    cu = Material.objects.filter(code='CU').first()
+    mp = None
+    if cu:
+        mp = (cu.prices.filter(exchange_rate__isnull=False)
+              .exclude(exchange_rate=Decimal('0')).order_by('-date').first())
+    if mp is None:
+        return JsonResponse({'rate': None,
+                             'hint': '暂无参考：用 --lme --rate 录入铜价后自动带出'})
+    return JsonResponse({'rate': str(mp.exchange_rate),
+                         'hint': '参考：最近一次 LME 铜价录入时的汇率'})
+
+
 # ---------------------------------------------------------------- 报价单
 
 @login_required
@@ -257,7 +278,9 @@ def _can_edit(quote, user):
 def _build_item(quote, spec, length, sort):
     params = PricingParams.load()
     bd = price_spec(spec, params)
-    list_m = bd['list_per_m'].quantize(Decimal('0.0001'))
+    rate = quote.exchange_rate or Decimal('1')
+    # 目录单价（人民币）按汇率折算到报价币种
+    list_m = (bd['list_per_m'] / rate).quantize(Decimal('0.0001'))
     final_m = (list_m * quote.discount).quantize(Decimal('0.0001'))
     return QuotationItem(
         quotation=quote, spec=spec,
@@ -320,6 +343,16 @@ def _quote_form(request, quote=None):
                                  Decimal('0'), Decimal('10') ** 8)
         if freight is None:
             errors.append('运费无效')
+        currency = request.POST.get('currency', 'CNY')
+        if currency not in dict(Quotation.CURRENCY_CHOICES):
+            currency = 'CNY'
+        rate_raw = request.POST.get('exchange_rate', '').strip() or '1'
+        rate = _parse_decimal(rate_raw, None, Decimal('0.1'), Decimal('100'))
+        if currency == 'CNY':
+            rate = Decimal('1')
+        elif rate is None:
+            errors.append('汇率无效（1 外币折人民币，如美元约 7.15）')
+            rate = Decimal('1')
         tier_applied = None
         if auto_tier and customer is not None:
             total_len = sum(ln for _, ln in pairs)
@@ -347,13 +380,16 @@ def _quote_form(request, quote=None):
                                 days=params.quote_valid_days),
                             base_cu_price=snap.get('price') or 0,
                             cu_price_source=snap.get('source') or '',
-                            cu_price_time=snap.get('time'))
+                            cu_price_time=snap.get('time'),
+                            currency=currency, exchange_rate=rate)
                         action = '创建'
                     else:
                         quote.customer = customer
                         quote.base_cu_price = snap.get('price') or 0
                         quote.cu_price_source = snap.get('source') or ''
                         quote.cu_price_time = snap.get('time')
+                        quote.currency = currency
+                        quote.exchange_rate = rate
                         quote.save()
                         quote.items.all().delete()
                         action = '更新'
@@ -376,6 +412,8 @@ def _quote_form(request, quote=None):
         default_customer = quote.customer_id
         default_freight = str(quote.freight)
         default_note = quote.note
+        default_currency = quote.currency
+        default_rate = str(quote.exchange_rate)
         cur_items = [
             {'spec_id': it.spec_id, 'length': str(it.length_m),
              'series_id': it.spec.series_id, 'display': it.spec.display}
@@ -388,6 +426,8 @@ def _quote_form(request, quote=None):
             default_discount = str(c.discount)
         default_freight = '0'
         default_note = ''
+        default_currency = 'CNY'
+        default_rate = '1'
         cur_items = []
     return render(request, 'quoter/quote_form.html', {
         'customers': customers,
@@ -396,6 +436,8 @@ def _quote_form(request, quote=None):
         'default_customer': default_customer,
         'default_freight': default_freight,
         'default_note': default_note,
+        'default_currency': default_currency,
+        'default_rate': default_rate,
         'cur_items': cur_items,
         'editing_quote': quote,
     })
@@ -449,7 +491,7 @@ def quote_submit(request, pk):
         messages.error(request, '报价单没有明细，无法提交')
         return redirect('quote_detail', pk=pk)
     params = PricingParams.load()
-    big_amount = quote.total_amount() >= params.boss_threshold_amount
+    big_amount = quote.total_amount_cny() >= params.boss_threshold_amount
     if margin < quote.min_margin():
         quote.status = Quotation.STATUS_PENDING
         quote.save(update_fields=['status'])
@@ -492,7 +534,7 @@ def quote_approve(request, pk):
     quote = get_object_or_404(Quotation, pk=pk)
     params = PricingParams.load()
     if quote.status == Quotation.STATUS_PENDING and is_manager(request.user):
-        if quote.total_amount() >= params.boss_threshold_amount:
+        if quote.total_amount_cny() >= params.boss_threshold_amount:
             quote.status = Quotation.STATUS_BOSS_PENDING
             quote.save(update_fields=['status'])
             messages.warning(
@@ -819,7 +861,8 @@ def quote_to_order(request, pk):
         return redirect('order_detail', pk=quote.order.pk)
     order = SalesOrder.objects.create(
         quotation=quote, number=next_number('SO'), customer=quote.customer,
-        created_by=request.user, amount=quote.total_amount())
+        created_by=request.user, amount=quote.total_amount(),
+        currency=quote.currency, exchange_rate=quote.exchange_rate)
     messages.success(request, '已生成销售订单 %s（生产中）' % order.number)
     return redirect('order_detail', pk=order.pk)
 

@@ -116,7 +116,8 @@ def export_quotation_bytes(quotation):
     _cell(ws, 5, 5, '报价口径：%s' % ('含税' if p.price_with_tax else '不含税'), align='left')
     ws.merge_cells('E5:H5')
 
-    headers = ['序号', '型号规格', '电压', '单位', '单价(元/m)', '长度(m)', '金额(元)', '备注']
+    headers = ['序号', '型号规格', '电压', '单位', '单价(%s/m)' % quotation.currency,
+               '长度(m)', '金额(%s)' % quotation.currency, '备注']
     for c, h in enumerate(headers, 1):
         _cell(ws, 7, c, h, bold=True, fill=HEAD_FILL)
 
@@ -182,7 +183,7 @@ def export_erp_csv(rows, header, filename):
 
 
 ERP_HEADER = ['单据日期', '单据编号', '客户名称', '型号规格', '电压', '计量单位',
-              '数量', '单价(元/m)', '金额(元)', '整单折扣', '运费(元)', '备注']
+              '数量', '币种', '单价', '金额', '整单折扣', '运费', '备注']
 
 
 def quote_erp_rows(quotation):
@@ -191,7 +192,8 @@ def quote_erp_rows(quotation):
         rows.append([
             quotation.created_at.strftime('%Y-%m-%d'), quotation.number,
             quotation.customer.name, item.spec_text, item.spec.voltage, '米',
-            str(item.length_m), str(item.final_price_per_m), str(item.amount),
+            str(item.length_m), quotation.currency,
+            str(item.final_price_per_m), str(item.amount),
             str(quotation.discount), str(quotation.freight), quotation.note,
         ])
     return rows
@@ -204,7 +206,8 @@ def order_erp_rows(order):
         rows.append([
             order.created_at.strftime('%Y-%m-%d'), order.number,
             order.customer.name, item.spec_text, item.spec.voltage, '米',
-            str(item.length_m), str(item.final_price_per_m), str(item.amount),
+            str(item.length_m), order.currency,
+            str(item.final_price_per_m), str(item.amount),
             str(quote.discount), str(quote.freight),
             '订单状态:%s%s' % (order.status_label,
                                '；' + order.note if order.note else ''),

@@ -17,6 +17,20 @@
         {% endfor %}
       </select>
     </div>
+    <div class="col-md-2">
+      <label class="form-label">币种</label>
+      <select name="currency" class="form-select" id="currency-sel">
+        <option value="CNY" {% if default_currency == 'CNY' %}selected{% endif %}>人民币 CNY</option>
+        <option value="USD" {% if default_currency == 'USD' %}selected{% endif %}>美元 USD</option>
+        <option value="EUR" {% if default_currency == 'EUR' %}selected{% endif %}>欧元 EUR</option>
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">汇率(外币→元)</label>
+      <input name="exchange_rate" id="rate-input" class="form-control mono"
+             value="{{ default_rate }}" placeholder="人民币填1">
+      <div class="form-text" id="rate-hint">人民币报价固定 1</div>
+    </div>
     <div class="col-md-3">
       <label class="form-label">整单折扣</label>
       <div class="input-group">
@@ -139,6 +153,17 @@ document.querySelector('select[name=customer]').addEventListener('change', async
   hint.textContent = data.tiers.length
     ? '阶梯：' + data.tiers.map(t => `${t.min_length_m}m↑ ${t.discount}`).join('，')
     : '';
+});
+
+// 币种切换：人民币锁定汇率1；外币自动带参考汇率（可改）
+document.getElementById('currency-sel').addEventListener('change', async function () {
+  const rate = document.getElementById('rate-input');
+  const hint = document.getElementById('rate-hint');
+  if (this.value === 'CNY') { rate.value = '1'; hint.textContent = '人民币报价固定 1'; return; }
+  const resp = await fetch(`/api/rate/?currency=${this.value}`, {credentials: 'same-origin'});
+  const data = await resp.json();
+  if (data.rate && data.rate !== 'None') rate.value = data.rate;
+  hint.textContent = data.hint || '';
 });
 </script>
 {% endblock %}
