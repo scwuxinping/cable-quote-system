@@ -1,9 +1,9 @@
 from django.contrib import admin
 
-from .models import (CableSeries, CableSpec, Customer, CustomerTier, InquiryLead,
-                     InquiryLeadItem, Material, MaterialPrice, Payment,
-                     PricingParams, QuoteSendLog, Quotation, QuotationItem,
-                     SalesOrder)
+from .models import (AuditLog, CableSeries, CableSpec, Customer, CustomerTier,
+                     InquiryLead, InquiryLeadItem, Material, MaterialPrice,
+                     Payment, PricingParams, QuoteSendLog, Quotation,
+                     QuotationItem, SalesOrder)
 
 
 @admin.register(Material)
@@ -99,6 +99,21 @@ class SalesOrderAdmin(admin.ModelAdmin):
 class QuoteSendLogAdmin(admin.ModelAdmin):
     list_display = ('quotation', 'sent_to', 'sent_by', 'sent_at', 'note')
     search_fields = ('quotation__number', 'sent_to')
+
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = ('created_at', 'user', 'action', 'detail')
+    search_fields = ('action', 'detail')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class InquiryLeadItemInline(admin.TabularInline):

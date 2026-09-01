@@ -3,9 +3,9 @@ from decimal import Decimal
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import (CableSeries, CableSpec, Customer, CustomerTier, InquiryLead,
-                     InquiryLeadItem, Material, MaterialPrice, Payment,
-                     PricingParams, Quotation, QuotationItem, SalesOrder)
+from .models import (AuditLog, CableSeries, CableSpec, Customer, CustomerTier,
+                     InquiryLead, InquiryLeadItem, Material, MaterialPrice,
+                     Payment, PricingParams, Quotation, QuotationItem, SalesOrder)
 from .pricing import (MissingPriceError, margin_pct, normalize_layout, parse_input,
                       parse_layout, price_spec, resolve_series_layout)
 from .specgen import compute_weights
@@ -1023,4 +1023,103 @@ class Phase7Tests(TestCase):
         data = resp.content.decode('utf-8-sig')
         self.assertIn('币种', data)
         self.assertIn('USD', data)
+
+class Phase8Tests(TestCase):
+    """八期：操作留痕 + 到期提醒 + 信用额度。"""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group, User
+        from django.utils import timezone
+        from datetime import timedelta
+        cu = _mat('CU', '8.89', '75')
+        xlpe = _mat('XLPE', '0.92', '12.5', loss='3')
+        pvc = _mat('PVC', '1.40', '9.2', loss='3')
+        series, _ = CableSeries.objects.update_or_create(
+            code='YJV', defaults={'name': 't', 'insulation': xlpe, 'has_sheath': True,
+                                  'sheath_material': pvc,
+                                  'insulation_thickness': {'16': '0.7'},
+                                  'core_options': ['4'], 'sections': [16]})
+        self.series = series
+        self.spec, _ = CableSpec.objects.update_or_create(
+            series=series, layout='4x16',
+            defaults={'conductor_material': cu, 'cores_total': 4,
+                      'section_total': Decimal('64'), 'conductor_weight': Decimal('580'),
+                      'insulation_weight': Decimal('44'), 'sheath_weight': Decimal('118')})
+        self.sales = User.objects.create_user('au_sales')
+        self.mgr = User.objects.create_user('au_mgr')
+        self.mgr.groups.add(Group.objects.get_or_create(name='经理')[0])
+        self.cust = Customer.objects.create(name='审计客户')
+
+    def _quote(self, owner, number, status='draft', amount=Decimal('5000')):
+        from django.utils import timezone as tz
+        from datetime import timedelta
+        q = Quotation.objects.create(
+            number=number, customer=self.cust, created_by=owner,
+            valid_until=tz.localdate() + timedelta(days=3), status=status)
+        QuotationItem.objects.create(
+            quotation=q, spec=self.spec, spec_text='YJV 4×16',
+            length_m=Decimal('100'), list_price_per_m=Decimal('50'),
+            final_price_per_m=Decimal('50'), amount=amount,
+            cost_detail={'cost_km': '40000', 'tax_mult': '1.13'})
+        return q
+
+    def test_audit_on_price_update(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.mgr)
+        c.post('/prices/', {'price_CU': '76.5'})
+        self.assertTrue(AuditLog.objects.filter(action='更新材料价格').exists())
+
+    def test_audit_on_quote_create(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.sales)
+        c.post('/quotes/new/', {
+            'customer': self.cust.pk, 'discount': '1.000', 'freight': '0',
+            'item_spec': [self.spec.pk], 'item_len': ['100']})
+        self.assertTrue(AuditLog.objects.filter(action='创建报价单').exists())
+
+    def test_audit_page_requires_manager(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.sales)
+        resp = c.get('/audit/', follow=True)
+        self.assertIn('仅经理', resp.content.decode())
+        c.force_login(self.mgr)
+        self.assertEqual(c.get('/audit/').status_code, 200)
+
+    def test_expired_unsigned_reminder(self):
+        from django.test import Client
+        from django.utils import timezone as tz
+        from datetime import timedelta
+        q = self._quote(self.sales, 'EXP-1', status='approved')
+        q.valid_until = tz.localdate() - timedelta(days=1)
+        q.save()
+        c = Client()
+        c.force_login(self.mgr)
+        body = c.get('/').content.decode()
+        self.assertIn('到期未签收报价', body)
+
+    def test_credit_limit_blocks_order(self):
+        from django.test import Client
+        self.cust.credit_limit = Decimal('4000')
+        self.cust.save()
+        q = self._quote(self.sales, 'CR-1', status='approved')
+        c = Client()
+        c.force_login(self.sales)
+        c.post('/quotes/%d/to-order/' % q.pk)
+        self.assertFalse(SalesOrder.objects.filter(quotation=q).exists())
+        c.force_login(self.mgr)
+        c.post('/quotes/%d/to-order/' % q.pk, {'force': '1'})
+        self.assertTrue(SalesOrder.objects.filter(quotation=q).exists())
+        self.assertTrue(AuditLog.objects.filter(
+            action='超信用额度转订单（经理强制）').exists())
+
+    def test_credit_check_skipped_without_limit(self):
+        from django.test import Client
+        q = self._quote(self.sales, 'CR-2', status='approved')
+        c = Client()
+        c.force_login(self.sales)
+        c.post('/quotes/%d/to-order/' % q.pk)
+        self.assertTrue(SalesOrder.objects.filter(quotation=q).exists())
 

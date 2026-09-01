@@ -1,0 +1,26 @@
+{% extends 'quoter/base.html' %}
+{% block title %}操作日志 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">操作日志（最近 300 条）</h4>
+
+<div class="card"><div class="card-body">
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead><tr><th style="width:130px">时间</th><th style="width:100px">操作人</th>
+      <th style="width:200px">操作</th><th>内容</th></tr></thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td class="mono small">{{ log.created_at|date:'Y-m-d H:i' }}</td>
+        <td>{{ log.user.username|default:'-' }}</td>
+        <td><b>{{ log.action }}</b></td>
+        <td class="text-muted small">{{ log.detail }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="text-center text-muted py-4">暂无日志</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+</div></div>
+{% endblock %}

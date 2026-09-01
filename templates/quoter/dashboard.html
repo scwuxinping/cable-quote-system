@@ -104,6 +104,16 @@
 {% endif %}
 </div>
 
+{% if expired_unsigned %}
+<div class="alert alert-warning no-print">
+  <b>到期未签收报价（{{ expired_unsigned|length }}）：</b>
+  {% for q in expired_unsigned %}
+    <a href="{% url 'quote_detail' q.pk %}" class="me-3">{{ q.number }}
+      <span class="text-muted">{{ q.customer.name }}</span></a>
+  {% endfor %}
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-center mb-2">

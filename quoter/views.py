@@ -11,9 +11,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import excel
-from .models import (CableSeries, CableSpec, Customer, CustomerTier, InquiryLead,
-                     Material, MaterialPrice, Payment, PricingParams, QuoteSendLog,
-                     Quotation, QuotationItem, SalesOrder)
+from .models import (AuditLog, CableSeries, CableSpec, Customer, CustomerTier,
+                     InquiryLead, Material, MaterialPrice, Payment, PricingParams,
+                     QuoteSendLog, Quotation, QuotationItem, SalesOrder)
 from .pricing import (MissingPriceError, jsonable, margin_pct,
                       price_spec, resolve_series_layout)
 
@@ -43,6 +43,15 @@ def _scoped(queryset, user, owner_field='created_by'):
 
 def _can_view(user, obj):
     return _full_access(user) or getattr(obj, 'created_by_id', None) == user.id
+
+
+def log_action(user, action, detail=''):
+    """关键操作留痕（静默，失败不影响业务）。"""
+    try:
+        AuditLog.objects.create(user=user if user.is_authenticated else None,
+                                action=action[:60], detail=detail[:300])
+    except Exception:
+        pass
 
 
 def next_number(prefix='BJ'):
@@ -163,6 +172,11 @@ def dashboard(request):
         'full_access': full,
         'monthly': monthly_stats() if full else None,
         'order_stats': order_stats,
+        'expired_unsigned': (
+            Quotation.objects.filter(
+                status=Quotation.STATUS_APPROVED, signed_at__isnull=True,
+                valid_until__lt=today).select_related('customer')[:10]
+            if full else []),
     }
     return render(request, 'quoter/dashboard.html', ctx)
 
@@ -402,6 +416,7 @@ def _quote_form(request, quote=None):
                 if tier_applied:
                     messages.info(request, tier_applied)
                 messages.success(request, '报价单 %s 已%s（草稿）' % (quote.number, action))
+                log_action(request.user, '%s报价单' % action, quote.number)
                 return redirect('quote_detail', pk=quote.pk)
             except MissingPriceError as exc:
                 messages.error(request, '保存失败：%s，请先到“价格维护”录入今日价格' % exc)
@@ -463,6 +478,16 @@ def quote_detail(request, pk):
         (quote.status == Quotation.STATUS_PENDING and is_manager(request.user))
         or (quote.status == Quotation.STATUS_BOSS_PENDING and is_boss(request.user)))
     can_reject = can_approve
+    credit_check = None
+    limit = quote.customer.credit_limit or Decimal('0')
+    if limit > 0 and quote.status == Quotation.STATUS_APPROVED:
+        balance = quote.customer.outstanding_cny()
+        credit_check = {
+            'limit': limit,
+            'balance': balance,
+            'after': balance + quote.total_amount_cny(),
+            'exceeded': balance + quote.total_amount_cny() > limit,
+        }
     return render(request, 'quoter/quote_detail.html', {
         'quote': quote,
         'items': items,
@@ -472,6 +497,7 @@ def quote_detail(request, pk):
         'can_reject': can_reject,
         'approve_label': '终审通过' if quote.status == Quotation.STATUS_BOSS_PENDING else '审批通过',
         'goods_total': quote.total_amount() - (quote.freight or Decimal('0')),
+        'credit_check': credit_check,
         'params': PricingParams.load(),
         'can_edit': _can_edit(quote, request.user),
         'can_submit': _can_edit(quote, request.user),
@@ -499,6 +525,8 @@ def quote_submit(request, pk):
             request, '实际毛利率 %.2f%% 低于最低 %.2f%%，已提交经理审批%s'
             % (margin, quote.min_margin(),
                '（金额达大单阈值，经理审批后还需老板终审）' if big_amount else ''))
+        log_action(request.user, '报价单转待审批（低毛利）',
+                     '%s 毛利 %.2f%%' % (quote.number, margin))
         from .notify import send_wecom
         send_wecom('⏳ 报价单待审批（低毛利）', [
             '> 单号：**%s**（客户 %s，业务员 %s）'
@@ -513,6 +541,8 @@ def quote_submit(request, pk):
         messages.warning(
             request, '金额 %s 元达到大单阈值（%s 元），需经理审批 + 老板终审'
             % (quote.total_amount(), params.boss_threshold_amount))
+        log_action(request.user, '大单报价转待审批',
+                     '%s 折人民币 %s 元' % (quote.number, quote.total_amount_cny()))
         from .notify import send_wecom
         send_wecom('⏳ 大单报价待审批', [
             '> 单号：**%s**（客户 %s，业务员 %s）'
@@ -525,6 +555,7 @@ def quote_submit(request, pk):
         quote.status = Quotation.STATUS_APPROVED
         quote.save(update_fields=['status'])
         messages.success(request, '毛利率 %.2f%% 达标，报价单已生效' % margin)
+        log_action(request.user, '报价单自动生效', '%s 毛利 %.2f%%' % (quote.number, margin))
     return redirect('quote_detail', pk=pk)
 
 
@@ -544,10 +575,12 @@ def quote_approve(request, pk):
             quote.status = Quotation.STATUS_APPROVED
             quote.save(update_fields=['status'])
             messages.success(request, '已审批通过')
+            log_action(request.user, '报价单审批通过', quote.number)
     elif quote.status == Quotation.STATUS_BOSS_PENDING and is_boss(request.user):
         quote.status = Quotation.STATUS_APPROVED
         quote.save(update_fields=['status'])
         messages.success(request, '老板终审通过，报价单已生效')
+        log_action(request.user, '报价单老板终审通过', quote.number)
     else:
         messages.error(request, '无权限或状态不允许')
     return redirect('quote_detail', pk=pk)
@@ -566,6 +599,7 @@ def quote_reject(request, pk):
     quote.status = Quotation.STATUS_REJECTED
     quote.save(update_fields=['status'])
     messages.warning(request, '已驳回，业务员可修改折扣后重新提交')
+    log_action(request.user, '报价单驳回', quote.number)
     return redirect('quote_detail', pk=pk)
 
 
@@ -675,7 +709,10 @@ def prices(request):
                 material=mat, date=today, defaults=defaults)
             updated += 1
         if updated:
+            names = [mat.code for mat in materials
+                     if request.POST.get('price_%s' % mat.code, '').strip()]
             messages.success(request, '已保存 %s 的 %d 项价格（手工录入/修正）' % (today, updated))
+            log_action(request.user, '更新材料价格', '、'.join(names))
         return redirect('prices')
     rows = []
     for mat in materials:
@@ -844,6 +881,7 @@ def spec_add(request):
         request, '已添加 %s %s（%d 芯，理论重量自动计算）。'
                  '如与厂标有差异，请管理员在后台校准。'
                  % (series.code, spec.display, w['cores_total']))
+    log_action(request.user, '新增规格', '%s %s' % (series.code, layout))
     return redirect(back)
 
 
@@ -859,11 +897,34 @@ def quote_to_order(request, pk):
     if hasattr(quote, 'order'):
         messages.error(request, '该报价单已转为订单 %s' % quote.order.number)
         return redirect('order_detail', pk=quote.order.pk)
+    limit = quote.customer.credit_limit or Decimal('0')
+    if limit > 0:
+        balance = quote.customer.outstanding_cny()
+        new_total = balance + quote.total_amount_cny()
+        if new_total > limit:
+            if is_manager(request.user) and request.POST.get('force') == '1':
+                messages.warning(
+                    request, '已强制执行：客户应收 %s 元 + 本单 %s 元 = %s 元，'
+                             '超过信用额度 %s 元'
+                             % (balance, quote.total_amount_cny(), new_total, limit))
+                log_action(request.user, '超信用额度转订单（经理强制）',
+                           '%s 应收 %s → %s 元（限额 %s）'
+                           % (quote.customer.name, balance, new_total, limit))
+            else:
+                messages.error(
+                    request, '客户 %s 应收余额 %s 元 + 本单 %s 元超过信用额度 %s 元，'
+                             '请先收款或与经理沟通'
+                             % (quote.customer.name, balance,
+                                quote.total_amount_cny(), limit))
+                return redirect('quote_detail', pk=pk)
     order = SalesOrder.objects.create(
         quotation=quote, number=next_number('SO'), customer=quote.customer,
         created_by=request.user, amount=quote.total_amount(),
         currency=quote.currency, exchange_rate=quote.exchange_rate)
     messages.success(request, '已生成销售订单 %s（生产中）' % order.number)
+    log_action(request.user, '报价单转订单',
+               '%s → %s（%s %s）' % (quote.number, order.number,
+                                    order.currency, order.amount))
     return redirect('order_detail', pk=order.pk)
 
 
@@ -920,10 +981,13 @@ def order_status(request, pk):
         order.status = SalesOrder.STATUS_CANCELLED
         order.save(update_fields=['status'])
         messages.warning(request, '订单已取消')
+        log_action(request.user, '订单取消', order.number)
     elif action in flow and flow[action] and order.status == flow[action][0]:
         order.status = flow[action][1]
         order.save(update_fields=['status'])
         messages.success(request, '状态已更新为“%s”' % order.status_label)
+        log_action(request.user, '订单状态更新',
+                   '%s → %s' % (order.number, order.status_label))
     else:
         messages.error(request, '当前状态不允许该操作')
     return redirect('order_detail', pk=pk)
@@ -944,6 +1008,8 @@ def payment_add(request, pk):
         note=request.POST.get('note', '').strip())
     messages.success(request, '已登记回款 %s 元，未回款余额 %s 元'
                      % (amount, order.balance()))
+    log_action(request.user, '登记回款',
+               '%s + %s 元（%s）' % (order.number, amount, order.currency))
     return redirect('order_detail', pk=pk)
 
 
@@ -1008,6 +1074,7 @@ def lead_to_quote(request, pk):
         lead.quotation = quote
         lead.save(update_fields=['status', 'handled_by', 'quotation'])
     messages.success(request, '线索已转为报价单草稿 %s' % quote.number)
+    log_action(request.user, '线索转报价单', '%s → %s' % (lead.company, quote.number))
     return redirect('quote_detail', pk=quote.pk)
 
 
@@ -1026,6 +1093,17 @@ def quote_share(request, pk):
     link = request.build_absolute_uri('/q/%s/' % quote.share_token)
     messages.info(request, '客户链接（免登录，可查看并签收）：%s' % link)
     return redirect('quote_detail', pk=pk)
+
+
+# ---------------------------------------------------------------- 操作日志
+
+@login_required
+def audit_list(request):
+    if not _full_access(request.user):
+        messages.error(request, '操作日志仅经理/老板可查看')
+        return redirect('dashboard')
+    return render(request, 'quoter/audit_list.html',
+                  {'logs': AuditLog.objects.select_related('user')[:300]})
 
 
 # ---------------------------------------------------------------- 客户管理
@@ -1061,6 +1139,9 @@ def _customer_form(request, customer=None):
             customer.contact = request.POST.get('contact', '').strip()
             customer.phone = request.POST.get('phone', '').strip()
             customer.notes = request.POST.get('notes', '').strip()
+            customer.credit_limit = _parse_decimal(
+                request.POST.get('credit_limit', '0'), Decimal('0'),
+                Decimal('0'), Decimal('10') ** 12) or Decimal('0')
             customer.save()
             customer.tiers.all().delete()
             mins = request.POST.getlist('tier_min')
@@ -1076,6 +1157,7 @@ def _customer_form(request, customer=None):
                 CustomerTier.objects.create(customer=customer, min_length_m=tm,
                                              discount=td)
             messages.success(request, '客户 %s 已保存' % customer.name)
+            log_action(request.user, '保存客户', customer.name)
             return redirect('customer_list')
     return render(request, 'quoter/customer_form.html', {
         'customer': customer,

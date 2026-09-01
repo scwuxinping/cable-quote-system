@@ -9,8 +9,8 @@
 <div class="card"><div class="card-body">
 <div class="table-responsive">
   <table class="table table-hover align-middle">
-    <thead><tr><th>名称</th><th>等级</th><th>默认折扣</th><th>阶梯价</th>
-      <th>联系人</th><th>电话</th><th>报价单数</th><th></th></tr></thead>
+    <thead><tr><th>名称</th><th>等级</th><th>默认折扣</th><th>信用额度(元)</th><th>阶梯价</th>
+      <th>联系人</th><th>报价单数</th><th></th></tr></thead>
     <tbody>
       {% for c in customers %}
       <tr>
@@ -19,13 +19,13 @@
         </td>
         <td>{{ c.get_level_display }}</td>
         <td class="mono">{{ c.discount }}</td>
+        <td class="mono">{{ c.credit_limit|floatformat:0 }}</td>
         <td class="small">
           {% for t in c.tiers.all %}
           <div class="mono">≥{{ t.min_length_m }}m → {{ t.discount }}</div>
           {% empty %}<span class="text-muted">无</span>{% endfor %}
         </td>
-        <td>{{ c.contact|default:'-' }}</td>
-        <td class="mono">{{ c.phone|default:'-' }}</td>
+        <td>{{ c.contact|default:'-' }}<br><span class="text-muted small">{{ c.phone }}</span></td>
         <td class="mono">{{ c.quotations.count }}</td>
         <td class="text-end">
           <a class="btn btn-sm btn-outline-primary" href="{% url 'customer_edit' c.pk %}">编辑</a>

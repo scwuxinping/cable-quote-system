@@ -38,6 +38,14 @@
     <label class="form-label">备注</label>
     <input name="notes" class="form-control" value="{{ customer.notes|default:'' }}">
   </div>
+  <div class="row g-3 mt-1">
+    <div class="col-md-3">
+      <label class="form-label">信用额度(元)</label>
+      <input name="credit_limit" class="form-control mono"
+             value="{{ customer.credit_limit|default:'0' }}">
+      <div class="form-text">0 表示不设限；转订单时应收超过将拦截，经理可强制</div>
+    </div>
+  </div>
 </div></div>
 
 <div class="card mb-3"><div class="card-body">

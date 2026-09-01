@@ -198,6 +198,9 @@ class Customer(models.Model):
     contact = models.CharField('联系人', max_length=50, blank=True)
     phone = models.CharField('电话', max_length=30, blank=True)
     notes = models.TextField('备注', blank=True)
+    credit_limit = models.DecimalField(
+        '信用额度 元', max_digits=14, decimal_places=2, default=Decimal('0'),
+        help_text='0 表示不设限；转订单时应收余额超过该值会预警')
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
 
     class Meta:
@@ -213,6 +216,13 @@ class Customer(models.Model):
         tier = (self.tiers.filter(min_length_m__lte=total_length)
                 .order_by('-min_length_m').first())
         return tier.discount if tier else None
+
+    def outstanding_cny(self):
+        """未回款余额合计（折人民币，跨币种）。"""
+        total = Decimal('0')
+        for o in self.orders.exclude(status=SalesOrder.STATUS_CANCELLED):
+            total += o.balance() * (o.exchange_rate or Decimal('1'))
+        return total
 
 
 class CustomerTier(models.Model):
@@ -484,6 +494,26 @@ class Payment(models.Model):
 
     def __str__(self):
         return '%s %s %s' % (self.order.number, self.date, self.amount)
+
+
+class AuditLog(models.Model):
+    """关键操作留痕：谁在何时做了什么。"""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='audit_logs', verbose_name='操作人')
+    action = models.CharField('操作', max_length=60)
+    detail = models.CharField('内容', max_length=300, blank=True)
+    created_at = models.DateTimeField('时间', auto_now_add=True)
+
+    class Meta:
+        verbose_name = '操作日志'
+        verbose_name_plural = '操作日志'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s %s %s' % (self.created_at.strftime('%m-%d %H:%M'),
+                             self.user.username if self.user else '?', self.action)
 
 
 class QuoteSendLog(models.Model):
