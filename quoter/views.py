@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -26,6 +27,22 @@ def is_manager(user):
 
 def is_boss(user):
     return user.is_superuser or user.groups.filter(name=BOSS_GROUP).exists()
+
+
+def _full_access(user):
+    """经理/老板/超管可见全部数据；普通业务员仅见自己的。"""
+    return is_manager(user) or is_boss(user)
+
+
+def _scoped(queryset, user, owner_field='created_by'):
+    """按角色过滤查询集：管理层见全部，业务员见自己创建的。"""
+    if _full_access(user):
+        return queryset
+    return queryset.filter(**{owner_field: user})
+
+
+def _can_view(user, obj):
+    return _full_access(user) or getattr(obj, 'created_by_id', None) == user.id
 
 
 def next_number(prefix='BJ'):
@@ -116,29 +133,36 @@ def _parse_decimal(raw, default, lo, hi):
 @login_required
 def dashboard(request):
     today = timezone.localdate()
-    recent = Quotation.objects.select_related('customer', 'created_by')[:8]
+    full = _full_access(request.user)
+    recent = _scoped(Quotation.objects.select_related('customer', 'created_by'),
+                     request.user)[:8]
     pending = Quotation.objects.filter(status=Quotation.STATUS_PENDING)
-    if not is_manager(request.user):
+    if not full:
         pending = pending.filter(created_by=request.user)
-    ctx = {
-        'cu_price': cu_price_now(),
-        'materials': Material.objects.all(),
-        'cu_spark': sparkline(cu_price_history(30)),
-        'total_quotes': Quotation.objects.count(),
-        'today_quotes': Quotation.objects.filter(created_at__date=today).count(),
-        'pending_count': pending.count(),
-        'recent': recent,
-        'params': PricingParams.load(),
-        'is_manager': is_manager(request.user),
-        'monthly': monthly_stats(),
-        'order_stats': {
+    order_stats = None
+    if full:
+        order_stats = {
             'open': SalesOrder.objects.exclude(status=SalesOrder.STATUS_DONE).exclude(
                 status=SalesOrder.STATUS_CANCELLED).count(),
             'receivable': sum((o.balance() for o in
                                SalesOrder.objects.exclude(
                                    status=SalesOrder.STATUS_CANCELLED)
                                .prefetch_related('payments')), Decimal('0')),
-        },
+        }
+    ctx = {
+        'cu_price': cu_price_now(),
+        'materials': Material.objects.all(),
+        'cu_spark': sparkline(cu_price_history(30)),
+        'total_quotes': _scoped(Quotation.objects, request.user).count(),
+        'today_quotes': _scoped(Quotation.objects, request.user).filter(
+            created_at__date=today).count(),
+        'pending_count': pending.count(),
+        'recent': recent,
+        'params': PricingParams.load(),
+        'is_manager': is_manager(request.user),
+        'full_access': full,
+        'monthly': monthly_stats() if full else None,
+        'order_stats': order_stats,
     }
     return render(request, 'quoter/dashboard.html', ctx)
 
@@ -212,10 +236,10 @@ def api_tiers(request):
 @login_required
 def quote_list(request):
     status = request.GET.get('status', '')
-    qs = Quotation.objects.select_related('customer', 'created_by')
+    qs = _scoped(Quotation.objects.select_related('customer', 'created_by'),
+                 request.user)
     if status:
         qs = qs.filter(status=status)
-    # 业务员可见全部报价单（只读），编辑受状态和创建人限制
     return render(request, 'quoter/quote_list.html', {
         'quotes': qs[:200],
         'status': status,
@@ -379,7 +403,9 @@ def _quote_form(request, quote=None):
 
 @login_required
 def quote_detail(request, pk):
-    quote = get_object_or_404(Quotation.objects.select_related('customer', 'created_by'), pk=pk)
+    quote = get_object_or_404(
+        _scoped(Quotation.objects.select_related('customer', 'created_by'),
+                request.user), pk=pk)
     items = list(quote.items.select_related('spec', 'spec__series'))
     margin = quote.margin_pct()
     deals = []
@@ -414,7 +440,7 @@ def quote_detail(request, pk):
 @login_required
 @require_POST
 def quote_submit(request, pk):
-    quote = get_object_or_404(Quotation, pk=pk)
+    quote = get_object_or_404(_scoped(Quotation.objects, request.user), pk=pk)
     if not _can_edit(quote, request.user):
         messages.error(request, '当前状态不允许提交')
         return redirect('quote_detail', pk=pk)
@@ -517,7 +543,7 @@ def quote_delete(request, pk):
 
 @login_required
 def quote_export(request, pk):
-    quote = get_object_or_404(Quotation, pk=pk)
+    quote = get_object_or_404(_scoped(Quotation.objects, request.user), pk=pk)
     if request.GET.get('erp') == '1':
         return excel.export_erp_csv(excel.quote_erp_rows(quote), excel.ERP_HEADER,
                                     '%s_erp.csv' % quote.number)
@@ -526,7 +552,7 @@ def quote_export(request, pk):
 
 @login_required
 def order_export(request, pk):
-    order = get_object_or_404(SalesOrder, pk=pk)
+    order = get_object_or_404(_scoped(SalesOrder.objects, request.user), pk=pk)
     return excel.export_erp_csv(excel.order_erp_rows(order), excel.ERP_HEADER,
                                 '%s_erp.csv' % order.number)
 
@@ -539,7 +565,7 @@ def quote_send(request, pk):
     from django.conf import settings as dj_settings
     from django.core.mail import EmailMessage
 
-    quote = get_object_or_404(Quotation, pk=pk)
+    quote = get_object_or_404(_scoped(Quotation.objects, request.user), pk=pk)
     emails = [e.strip() for e in request.POST.get('emails', '').split(',')
               if e.strip()]
     emails = [e for e in emails if _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', e)]
@@ -732,12 +758,59 @@ def spec_list(request):
     })
 
 
+@login_required
+def spec_add(request):
+    """业务员自助添加规格：选系列 + 填芯数截面，自动按国标模型算理论重量。"""
+    from .specgen import compute_weights
+    from .pricing import normalize_layout
+
+    if request.method != 'POST':
+        return redirect('spec_list')
+    series = CableSeries.objects.filter(
+        pk=request.POST.get('series'), active=True).first()
+    layout_raw = request.POST.get('layout', '').strip()
+    back = request.META.get('HTTP_REFERER') or reverse('spec_list')
+    if series is None:
+        messages.error(request, '请选择型号系列')
+        return redirect(back)
+    try:
+        layout = normalize_layout(layout_raw)
+    except ValueError as exc:
+        messages.error(request, '规格写法有误：%s（示例：3x120+1x70）' % exc)
+        return redirect(back)
+    if series.specs.filter(layout=layout).exists():
+        messages.info(request, '%s %s 已存在，无需添加' % (series.code, layout))
+        return redirect(back)
+    try:
+        w = compute_weights(series, layout)
+    except ValueError as exc:
+        messages.error(
+            request, '无法计算 %s %s：%s。请联系管理员在后台完善该系列的'
+                     '绝缘厚度表或芯数组合。' % (series.code, layout, exc))
+        return redirect(back)
+    cond = Material.objects.filter(code=series.conductor).first()
+    spec = CableSpec.objects.create(
+        series=series, layout=layout, voltage=series.voltage,
+        conductor_material=cond,
+        cores_total=w['cores_total'], section_total=w['section_total'],
+        conductor_weight=w['conductor_weight'],
+        insulation_weight=w['insulation_weight'],
+        sheath_weight=w['sheath_weight'], armor_weight=w['armor_weight'],
+        filler_weight=w['filler_weight'],
+        note='业务员 %s 自助添加' % request.user.username)
+    messages.success(
+        request, '已添加 %s %s（%d 芯，理论重量自动计算）。'
+                 '如与厂标有差异，请管理员在后台校准。'
+                 % (series.code, spec.display, w['cores_total']))
+    return redirect(back)
+
+
 # ---------------------------------------------------------------- 销售订单
 
 @login_required
 @require_POST
 def quote_to_order(request, pk):
-    quote = get_object_or_404(Quotation, pk=pk)
+    quote = get_object_or_404(_scoped(Quotation.objects, request.user), pk=pk)
     if quote.status != Quotation.STATUS_APPROVED:
         messages.error(request, '只有已审批的报价单可以转订单')
         return redirect('quote_detail', pk=pk)
@@ -754,7 +827,8 @@ def quote_to_order(request, pk):
 @login_required
 def order_list(request):
     status = request.GET.get('status', '')
-    qs = SalesOrder.objects.select_related('customer', 'quotation', 'created_by')
+    qs = _scoped(SalesOrder.objects.select_related('customer', 'quotation',
+                                                   'created_by'), request.user)
     if status:
         qs = qs.filter(status=status)
     return render(request, 'quoter/order_list.html', {
@@ -767,7 +841,8 @@ def order_list(request):
 @login_required
 def order_detail(request, pk):
     order = get_object_or_404(
-        SalesOrder.objects.select_related('customer', 'quotation', 'created_by'), pk=pk)
+        _scoped(SalesOrder.objects.select_related('customer', 'quotation',
+                                                  'created_by'), request.user), pk=pk)
     items = list(order.quotation.items.select_related('spec', 'spec__series'))
     can_manage = is_manager(request.user) or order.created_by_id == request.user.id
     next_status = {
@@ -788,7 +863,7 @@ def order_detail(request, pk):
 @login_required
 @require_POST
 def order_status(request, pk):
-    order = get_object_or_404(SalesOrder, pk=pk)
+    order = get_object_or_404(_scoped(SalesOrder.objects, request.user), pk=pk)
     if not (is_manager(request.user) or order.created_by_id == request.user.id):
         messages.error(request, '无权限')
         return redirect('order_detail', pk=pk)
@@ -814,7 +889,7 @@ def order_status(request, pk):
 @login_required
 @require_POST
 def payment_add(request, pk):
-    order = get_object_or_404(SalesOrder, pk=pk)
+    order = get_object_or_404(_scoped(SalesOrder.objects, request.user), pk=pk)
     amount = _parse_decimal(request.POST.get('amount'), None,
                             Decimal('0.01'), Decimal('10') ** 9)
     if amount is None:
@@ -833,7 +908,13 @@ def payment_add(request, pk):
 
 @login_required
 def lead_list(request):
-    leads = InquiryLead.objects.prefetch_related('items__spec__series').order_by('-created_at')
+    leads = (InquiryLead.objects
+             .prefetch_related('items__spec__series').order_by('-created_at'))
+    # 新线索全员可见（先到先得跟进）；已处理线索仅处理人与管理层可见
+    if not _full_access(request.user):
+        from django.db.models import Q
+        leads = leads.filter(Q(status=InquiryLead.STATUS_NEW)
+                             | Q(handled_by=request.user))
     return render(request, 'quoter/lead_list.html', {'leads': leads[:200]})
 
 
@@ -892,7 +973,7 @@ def lead_to_quote(request, pk):
 def quote_share(request, pk):
     """生成（或复用）报价单的客户查看链接。"""
     import secrets as _secrets
-    quote = get_object_or_404(Quotation, pk=pk)
+    quote = get_object_or_404(_scoped(Quotation.objects, request.user), pk=pk)
     if quote.status != Quotation.STATUS_APPROVED:
         messages.error(request, '只有已审批的报价单可以生成客户链接')
         return redirect('quote_detail', pk=pk)
@@ -976,6 +1057,9 @@ def customer_edit(request, pk):
 def report(request):
     from django.db.models import Count, Sum
 
+    if not _full_access(request.user):
+        messages.error(request, '统计报表仅经理/老板可查看')
+        return redirect('dashboard')
     month_first = timezone.localdate().replace(day=1)
     quotes_m = Quotation.objects.filter(created_at__gte=month_first)
     by_sales = (quotes_m.values('created_by__username')

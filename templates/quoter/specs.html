@@ -20,6 +20,26 @@
   </div>
 </form>
 
+<div class="card mb-3 no-print"><div class="card-body py-2">
+  <form method="post" action="{% url 'spec_add' %}" class="row g-2 align-items-center">
+    {% csrf_token %}
+    <div class="col-auto fw-bold small">＋ 添加规格：</div>
+    <div class="col-auto">
+      <select name="series" class="form-select form-select-sm" required>
+        <option value="">— 型号 —</option>
+        {% for s in series_list %}<option value="{{ s.pk }}">{{ s.code }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <input name="layout" class="form-control form-control-sm" placeholder="如 3x120+1x70" required style="width:180px">
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-sm btn-primary">添加并自动算重量</button>
+    </div>
+    <div class="col small text-muted">芯数截面按国标模型自动计算理论重量</div>
+  </form>
+</div></div>
+
 <div class="card"><div class="card-body">
 <div class="table-responsive">
   <table class="table table-sm table-hover align-middle">

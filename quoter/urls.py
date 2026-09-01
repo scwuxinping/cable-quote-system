@@ -16,6 +16,7 @@ urlpatterns = [
     path('q/<str:token>/sign/', portal.portal_sign, name='portal_sign'),
     path('calc/', views.calc, name='calc'),
     path('specs/', views.spec_list, name='spec_list'),
+    path('specs/add/', views.spec_add, name='spec_add'),
     path('prices/', views.prices, name='prices'),
     path('quotes/', views.quote_list, name='quote_list'),
     path('quotes/new/', views.quote_new, name='quote_new'),

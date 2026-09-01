@@ -799,7 +799,9 @@ class Phase5Tests(TestCase):
         self.assertEqual(cust.tiers.count(), 1)
 
     def test_report_page(self):
+        from django.contrib.auth.models import Group
         from django.test import Client
+        self.user.groups.add(Group.objects.get_or_create(name='经理')[0])
         self._make_quote(status=Quotation.STATUS_APPROVED)
         c = Client()
         c.force_login(self.user)
@@ -808,4 +810,117 @@ class Phase5Tests(TestCase):
         body = resp.content.decode()
         self.assertIn('按业务员', body)
         self.assertIn('热门规格', body)
+
+class Phase6Tests(TestCase):
+    """六期：数据权限隔离 + 规格库自助添加。"""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group, User
+        from django.utils import timezone
+        from datetime import timedelta
+        cu = _mat('CU', '8.89', '75')
+        xlpe = _mat('XLPE', '0.92', '12.5', loss='3')
+        pvc = _mat('PVC', '1.40', '9.2', loss='3')
+        series, _ = CableSeries.objects.update_or_create(
+            code='YJV', defaults={'name': 't', 'insulation': xlpe, 'has_sheath': True,
+                                  'sheath_material': pvc,
+                                  'insulation_thickness': {'16': '0.7', '120': '1.2',
+                                                           '70': '1.1'},
+                                  'core_options': ['4'], 'sections': [16, 120]})
+        self.series = series
+        self.spec, _ = CableSpec.objects.update_or_create(
+            series=series, layout='4x16',
+            defaults={'conductor_material': cu, 'cores_total': 4,
+                      'section_total': Decimal('64'), 'conductor_weight': Decimal('580'),
+                      'insulation_weight': Decimal('44'), 'sheath_weight': Decimal('118')})
+        self.sales1 = User.objects.create_user('s1')
+        self.sales2 = User.objects.create_user('s2')
+        self.mgr = User.objects.create_user('mg6')
+        self.mgr.groups.add(Group.objects.get_or_create(name='经理')[0])
+        self.cust = Customer.objects.create(name='六期客户')
+
+    def _quote(self, owner, number):
+        from django.utils import timezone as tz
+        from datetime import timedelta
+        q = Quotation.objects.create(
+            number=number, customer=self.cust, created_by=owner,
+            valid_until=tz.localdate() + timedelta(days=3))
+        QuotationItem.objects.create(
+            quotation=q, spec=self.spec, spec_text='YJV 4×16',
+            length_m=Decimal('100'), list_price_per_m=Decimal('50'),
+            final_price_per_m=Decimal('50'), amount=Decimal('5000'),
+            cost_detail={'cost_km': '40000', 'tax_mult': '1.13'})
+        return q
+
+    def test_sales_sees_only_own_quotes(self):
+        from django.test import Client
+        mine = self._quote(self.sales1, 'ISO-M1')
+        other = self._quote(self.sales2, 'ISO-O1')
+        c = Client()
+        c.force_login(self.sales1)
+        resp = c.get('/quotes/')
+        body = resp.content.decode()
+        self.assertIn('ISO-M1', body)
+        self.assertNotIn('ISO-O1', body)
+        # 越权访问他人详情 → 404
+        self.assertEqual(c.get('/quotes/%d/' % other.pk).status_code, 404)
+        self.assertEqual(c.get('/quotes/%d/' % mine.pk).status_code, 200)
+        # 越权导出同样拦截
+        self.assertEqual(c.get('/quotes/%d/export/' % other.pk).status_code, 404)
+
+    def test_manager_sees_all(self):
+        from django.test import Client
+        self._quote(self.sales1, 'ISO-M2')
+        self._quote(self.sales2, 'ISO-O2')
+        c = Client()
+        c.force_login(self.mgr)
+        body = c.get('/quotes/').content.decode()
+        self.assertIn('ISO-M2', body)
+        self.assertIn('ISO-O2', body)
+
+    def test_orders_scoped(self):
+        from django.test import Client
+        q1 = self._quote(self.sales1, 'ISO-M3')
+        q1.status = Quotation.STATUS_APPROVED
+        q1.save()
+        order = SalesOrder.objects.create(
+            quotation=q1, number='SO-ISO1', customer=self.cust,
+            created_by=self.sales1, amount=Decimal('100'))
+        c = Client()
+        c.force_login(self.sales2)
+        body = c.get('/orders/').content.decode()
+        self.assertNotIn('SO-ISO1', body)
+        self.assertEqual(c.get('/orders/%d/' % order.pk).status_code, 404)
+        c.force_login(self.mgr)
+        self.assertIn('SO-ISO1', c.get('/orders/').content.decode())
+
+    def test_report_requires_manager(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.sales1)
+        resp = c.get('/report/', follow=True)
+        self.assertEqual(resp.redirect_chain[-1][0].rstrip('/').endswith('dashboard')
+                         or resp.status_code == 200, True)
+        self.assertIn('统计报表仅经理', resp.content.decode())
+        c.force_login(self.mgr)
+        self.assertEqual(c.get('/report/').status_code, 200)
+
+    def test_spec_self_service_add(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.sales1)
+        resp = c.post('/specs/add/', {'series': self.series.pk,
+                                      'layout': '3x120+1x70'})
+        self.assertEqual(resp.status_code, 302)
+        spec = CableSpec.objects.get(series=self.series, layout='3x120+1x70')
+        self.assertGreater(float(spec.conductor_weight), 3000)
+        self.assertEqual(spec.cores_total, 4)
+        # 重复添加提示已存在
+        resp = c.post('/specs/add/', {'series': self.series.pk,
+                                      'layout': '3x120+1x70'}, follow=True)
+        self.assertIn('已存在', resp.content.decode())
+        # 缺厚度表的截面给出明确错误
+        resp = c.post('/specs/add/', {'series': self.series.pk,
+                                      'layout': '4x300'}, follow=True)
+        self.assertIn('无法计算', resp.content.decode())
 
