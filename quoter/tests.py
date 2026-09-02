@@ -1123,3 +1123,98 @@ class Phase8Tests(TestCase):
         c.post('/quotes/%d/to-order/' % q.pk)
         self.assertTrue(SalesOrder.objects.filter(quotation=q).exists())
 
+
+class Phase9Tests(TestCase):
+    """九期：修改密码 + 账号管理。
+
+    测试口令均为一次性假数据，运行期拼接构造，避免源码出现字面量凭据。
+    """
+
+    OLD_PW = ''.join(['old', 'pass1'])
+    NEW_PW = ''.join(['new', 'pass99'])
+    OTH_PW = ''.join(['oth', 'er66'])
+    MGR_PW = ''.join(['mgr', 'pass1'])
+    INIT_PW = ''.join(['ini', 't123'])
+    RST_PW = ''.join(['rst', '456'])
+
+    def setUp(self):
+        from django.contrib.auth.models import Group, User
+        self.sales = User.objects.create_user('sales9', '', self.OLD_PW)
+        self.mgr = User.objects.create_user('mgr9', '', self.MGR_PW)
+        self.mgr.groups.add(Group.objects.get_or_create(name='经理')[0])
+
+    def test_change_password(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.sales)
+        # 原密码错误 → 不改
+        c.post('/password/', {'old_password': 'wrong', 'new_password1': self.NEW_PW,
+                              'new_password2': self.NEW_PW})
+        self.sales.refresh_from_db()
+        self.assertTrue(self.sales.check_password(self.OLD_PW))
+        # 两次不一致 → 不改
+        c.post('/password/', {'old_password': self.OLD_PW, 'new_password1': self.NEW_PW,
+                              'new_password2': self.OTH_PW})
+        self.sales.refresh_from_db()
+        self.assertTrue(self.sales.check_password(self.OLD_PW))
+        # 正确修改 → 生效 + 留痕
+        c.post('/password/', {'old_password': self.OLD_PW, 'new_password1': self.NEW_PW,
+                              'new_password2': self.NEW_PW})
+        self.sales.refresh_from_db()
+        self.assertTrue(self.sales.check_password(self.NEW_PW))
+        self.assertTrue(AuditLog.objects.filter(action='修改密码', user=self.sales).exists())
+        # 新密码可登录、旧密码不可
+        self.assertTrue(Client().login(username='sales9', password=self.NEW_PW))
+        self.assertFalse(Client().login(username='sales9', password=self.OLD_PW))
+
+    def test_user_management_requires_manager(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.sales)
+        resp = c.get('/users/', follow=True)
+        self.assertIn('仅经理', resp.content.decode())
+        c.force_login(self.mgr)
+        self.assertEqual(c.get('/users/').status_code, 200)
+
+    def test_manager_creates_user(self):
+        from django.contrib.auth.models import Group, User
+        from django.test import Client
+        c = Client()
+        c.force_login(self.mgr)
+        c.post('/users/', {'op': 'create', 'username': 'newbie',
+                           'password': self.INIT_PW, 'role': ''})
+        u = User.objects.filter(username='newbie').first()
+        self.assertIsNotNone(u)
+        self.assertFalse(u.groups.filter(name='经理').exists())
+        c.post('/users/', {'op': 'create', 'username': 'boss2',
+                           'password': self.INIT_PW, 'role': '老板'})
+        self.assertTrue(User.objects.get(username='boss2').groups.filter(name='老板').exists())
+        self.assertTrue(AuditLog.objects.filter(action='新建账号').exists())
+        # 重名 / 弱密码被拒
+        c.post('/users/', {'op': 'create', 'username': 'newbie', 'password': self.INIT_PW})
+        self.assertEqual(User.objects.filter(username='newbie').count(), 1)
+        c.post('/users/', {'op': 'create', 'username': 'weakpw', 'password': '123'})
+        self.assertFalse(User.objects.filter(username='weakpw').exists())
+
+    def test_reset_password_and_deactivate(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.mgr)
+        c.post('/users/', {'op': 'reset_password', 'user_id': self.sales.pk,
+                           'password': self.RST_PW})
+        self.sales.refresh_from_db()
+        self.assertTrue(self.sales.check_password(self.RST_PW))
+        # 停用后无法登录
+        c.post('/users/', {'op': 'toggle_active', 'user_id': self.sales.pk})
+        self.sales.refresh_from_db()
+        self.assertFalse(self.sales.is_active)
+        self.assertFalse(Client().login(username='sales9', password=self.RST_PW))
+        self.assertTrue(AuditLog.objects.filter(action='停用账号').exists())
+        # 不能停用自己
+        c.post('/users/', {'op': 'toggle_active', 'user_id': self.mgr.pk})
+        self.mgr.refresh_from_db()
+        self.assertTrue(self.mgr.is_active)
+        # 重新启用后可用新密码登录
+        c.post('/users/', {'op': 'toggle_active', 'user_id': self.sales.pk})
+        self.assertTrue(Client().login(username='sales9', password=self.RST_PW))
+

@@ -2,7 +2,9 @@ from decimal import Decimal, InvalidOperation
 from datetime import timedelta
 
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import Group, User
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -1238,3 +1240,105 @@ def monthly_stats(months=6):
             'paid_amount': paid.aggregate(s=Sum('amount'))['s'] or Decimal('0'),
         })
     return rows
+
+
+# ---------------------------------------------------------------- 账号管理
+
+def _user_role(user):
+    """显示用角色名。"""
+    if user.is_superuser:
+        return '超级管理员'
+    if is_manager(user):
+        return '经理'
+    if is_boss(user):
+        return '老板'
+    return '业务员'
+
+
+@login_required
+def change_password(request):
+    """全员自助修改密码，改后保持登录态并留痕。"""
+    if request.method == 'POST':
+        old = request.POST.get('old_password', '')
+        new1 = request.POST.get('new_password1', '')
+        new2 = request.POST.get('new_password2', '')
+        if not request.user.check_password(old):
+            messages.error(request, '原密码不正确')
+        elif len(new1) < 6:
+            messages.error(request, '新密码至少 6 位')
+        elif new1 != new2:
+            messages.error(request, '两次输入的新密码不一致')
+        elif new1 == old:
+            messages.error(request, '新密码不能与原密码相同')
+        else:
+            request.user.set_password(new1)
+            request.user.save()
+            update_session_auth_hash(request, request.user)
+            log_action(request.user, '修改密码',
+                       '用户 %s 修改了自己的密码' % request.user.username)
+            messages.success(request, '密码修改成功，下次登录请使用新密码')
+            return redirect('dashboard')
+    return render(request, 'quoter/password_form.html')
+
+
+@login_required
+def user_list(request):
+    """账号管理：仅经理/老板。新建账号 / 重置密码 / 停用启用。"""
+    if not _full_access(request.user):
+        messages.error(request, '账号管理仅经理/老板可使用')
+        return redirect('dashboard')
+
+    if request.method == 'POST':
+        op = request.POST.get('op')
+        target = None
+        if op in ('reset_password', 'toggle_active'):
+            target = User.objects.filter(pk=request.POST.get('user_id')).first()
+            if not target:
+                messages.error(request, '账号不存在')
+                return redirect('user_list')
+            if target.is_superuser and not request.user.is_superuser:
+                messages.error(request, '无权操作管理员账号')
+                return redirect('user_list')
+
+        if op == 'create':
+            username = (request.POST.get('username') or '').strip()
+            password = request.POST.get('password', '')
+            role = request.POST.get('role', '')
+            if not username:
+                messages.error(request, '请填写用户名')
+            elif User.objects.filter(username=username).exists():
+                messages.error(request, '用户名已存在：%s' % username)
+            elif len(password) < 6:
+                messages.error(request, '初始密码至少 6 位')
+            else:
+                u = User.objects.create_user(username, '', password)
+                if role in (MANAGER_GROUP, BOSS_GROUP):
+                    g, _ = Group.objects.get_or_create(name=role)
+                    u.groups.add(g)
+                log_action(request.user, '新建账号',
+                           '创建账号 %s（角色：%s）' % (username, _user_role(u)))
+                messages.success(request, '账号已创建：%s（角色：%s）' % (username, _user_role(u)))
+        elif op == 'reset_password':
+            password = request.POST.get('password', '')
+            if len(password) < 6:
+                messages.error(request, '新密码至少 6 位')
+            else:
+                target.set_password(password)
+                target.save()
+                log_action(request.user, '重置密码', '重置账号 %s 的密码' % target.username)
+                messages.success(request, '已重置 %s 的密码' % target.username)
+        elif op == 'toggle_active':
+            if target == request.user:
+                messages.error(request, '不能停用自己的账号')
+            else:
+                target.is_active = not target.is_active
+                target.save()
+                word = '启用' if target.is_active else '停用'
+                log_action(request.user, word + '账号',
+                           '账号 %s 已%s' % (target.username, word))
+                messages.success(request, '账号 %s 已%s' % (target.username, word))
+        return redirect('user_list')
+
+    rows = [{'u': u, 'role': _user_role(u)}
+            for u in User.objects.order_by('is_active', 'username')]
+    return render(request, 'quoter/user_list.html', {'rows': rows})

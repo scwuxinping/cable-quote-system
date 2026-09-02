@@ -1,0 +1,75 @@
+{% extends 'quoter/base.html' %}
+{% block title %}账号管理 - 电缆报价系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">账号管理</h4>
+
+<div class="card mb-3"><div class="card-body">
+  <form method="post" class="row g-2 align-items-end">
+  {% csrf_token %}
+  <input type="hidden" name="op" value="create">
+  <div class="col-md-3">
+    <label class="form-label">用户名</label>
+    <input name="username" class="form-control" required>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">角色</label>
+    <select name="role" class="form-select">
+      <option value="">业务员</option>
+      <option value="经理">经理</option>
+      <option value="老板">老板</option>
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">初始密码</label>
+    <input name="password" class="form-control" required placeholder="至少6位">
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-primary">新建账号</button>
+  </div>
+  </form>
+</div></div>
+
+<div class="card"><div class="card-body">
+<div class="table-responsive">
+<table class="table table-sm align-middle">
+  <thead><tr><th>用户名</th><th style="width:110px">角色</th><th style="width:80px">状态</th>
+    <th style="width:140px">最后登录</th><th style="width:360px">操作</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+  <tr>
+    <td><b>{{ row.u.username }}</b>{% if row.u == user %} <span class="badge bg-secondary">我</span>{% endif %}</td>
+    <td>{{ row.role }}</td>
+    <td>{% if row.u.is_active %}<span class="badge bg-success">启用</span>{% else %}<span class="badge bg-secondary">停用</span>{% endif %}</td>
+    <td class="mono small">{{ row.u.last_login|date:'Y-m-d H:i'|default:'-' }}</td>
+    <td>
+      <form method="post" class="d-inline">{% csrf_token %}
+        <input type="hidden" name="op" value="reset_password">
+        <input type="hidden" name="user_id" value="{{ row.u.pk }}">
+        <input name="password" class="form-control form-control-sm d-inline"
+               style="width:110px" placeholder="新密码" required>
+        <button class="btn btn-sm btn-outline-warning">重置密码</button>
+      </form>
+      {% if row.u != user %}
+      <form method="post" class="d-inline">{% csrf_token %}
+        <input type="hidden" name="op" value="toggle_active">
+        <input type="hidden" name="user_id" value="{{ row.u.pk }}">
+        {% if row.u.is_active %}
+        <button class="btn btn-sm btn-outline-danger"
+                onclick="return confirm('确定停用账号 {{ row.u.username }}？停用后该同事将无法登录。')">停用</button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-success">启用</button>
+        {% endif %}
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<div class="text-muted small">
+  新建账号后，请把用户名和初始密码当面告诉同事，并提醒他首次登录后点右上角"改密码"自行修改。
+  停用的账号数据仍保留，随时可启用。
+</div>
+</div></div>
+{% endblock %}

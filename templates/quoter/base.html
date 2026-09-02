@@ -24,7 +24,8 @@
         <li class="nav-item"><a class="nav-link" href="{% url 'lead_list' %}">询价线索</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'customer_list' %}">客户</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'report' %}">报表</a></li>
-        {% if is_manager %}<li class="nav-item"><a class="nav-link" href="{% url 'audit_list' %}">日志</a></li>{% endif %}
+        {% if is_manager %}<li class="nav-item"><a class="nav-link" href="{% url 'audit_list' %}">日志</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'user_list' %}">账号</a></li>{% endif %}
         <li class="nav-item"><a class="nav-link" href="{% url 'import_quotes' %}">Excel 导入</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'prices' %}">价格维护</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'spec_list' %}">规格库</a></li>
@@ -32,7 +33,7 @@
         <li class="nav-item"><a class="nav-link" href="/admin/">后台管理</a></li>
         {% endif %}
       </ul>
-      <span class="navbar-text me-3">{{ user.username }}</span>
+      <a class="navbar-text me-3" style="color:#cfe2ff" href="{% url 'change_password' %}">{{ user.username }}（改密码）</a>
       <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
         <button class="btn btn-outline-light btn-sm">退出</button>
